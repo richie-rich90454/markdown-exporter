@@ -147,3 +147,18 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+# Markdown Exporter additions
+
+# Vite SSR build output
+dist-ssr
+
+# Playwright
+playwright-report
+test-results
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local overrides
+*.local
