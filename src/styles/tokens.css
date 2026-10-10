@@ -1,0 +1,96 @@
+:root {
+    /* Spacing: 4px base, only these values are permitted. */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-6: 24px;
+    --space-8: 32px;
+    --space-12: 48px;
+    --space-16: 64px;
+
+    /* Color: pure grayscale, red reserved for errors. */
+    --canvas: #ffffff;
+    --surface: #f7f7f7;
+    --page: #ffffff;
+    --border: #e4e4e4;
+    --border-strong: #d4d4d4;
+    --text: #0a0a0a;
+    --text-secondary: #6b6b6b;
+    /* Darkened from the spec palette (#999999) so 11px metadata still clears
+       WCAG AA (4.5:1) on both --canvas and --surface. */
+    --text-tertiary: #6e6e6e;
+    --focus: #0a0a0a;
+    --danger: #c81e1e;
+
+    /* Typefaces: system stacks only, no network fonts. */
+    --font-ui:
+        -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-editor:
+        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --font-preview: Georgia, "Times New Roman", serif;
+
+    /* Type scale: fixed sizes, no fluid type. */
+    --text-micro: 11px;
+    --text-sm: 12px;
+    --text-base: 13px;
+    --text-editor: 13px;
+    --text-preview-body: 15px;
+    --text-preview-h3: 17px;
+    --text-preview-h2: 21px;
+    --text-preview-h1: 28px;
+
+    /* Metrics. */
+    --radius: 4px;
+    --header-height: 48px;
+    --statusbar-height: 28px;
+    --divider-hit: 8px;
+    --control-height-compact: 28px;
+    --control-height-default: 32px;
+    --sheet-width: 320px;
+
+    /* Elevation: overlays only. */
+    --shadow-overlay: 0 4px 16px rgba(0, 0, 0, 0.08);
+
+    /* Motion. */
+    --duration-fast: 120ms;
+    --duration-sheet: 180ms;
+    --ease-sheet: cubic-bezier(0.2, 0, 0, 1);
+
+    /* Syntax highlighting, monochrome. */
+    --hljs-keyword: var(--text);
+    --hljs-string: var(--text-secondary);
+    --hljs-comment: var(--text-tertiary);
+    --hljs-number: var(--text);
+    --hljs-attribute: var(--text);
+    --hljs-symbol: var(--text-secondary);
+    --hljs-meta: var(--text-secondary);
+    --hljs-section: var(--text);
+    --hljs-title: var(--text);
+    --hljs-name: var(--text);
+    --hljs-type: var(--text);
+    --hljs-attribute-name: var(--text);
+    --hljs-built-in: var(--text);
+    --hljs-literal: var(--text);
+    --hljs-bullet: var(--text-secondary);
+    --hljs-quote: var(--text-tertiary);
+    --hljs-link: var(--text);
+    --hljs-emphasis-font-style: italic;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --canvas: #0a0a0a;
+        --surface: #141414;
+        --page: #1a1a1a;
+        --border: #262626;
+        --border-strong: #3a3a3a;
+        --text: #fafafa;
+        --text-secondary: #a3a3a3;
+        /* Lightened from the spec palette (#737373) for the same reason. */
+        --text-tertiary: #8c8c8c;
+        --focus: #fafafa;
+        --danger: #f87171;
+        --shadow-overlay: 0 4px 16px rgba(0, 0, 0, 0.4);
+    }
+}
