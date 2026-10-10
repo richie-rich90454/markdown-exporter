@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="color-scheme" content="light dark" />
+        <title>Privacy - Markdown Exporter</title>
+        <style>
+            :root {
+                color-scheme: light dark;
+                --canvas: #ffffff;
+                --text: #0a0a0a;
+                --text-secondary: #6b6b6b;
+                --border: #e4e4e4;
+            }
+
+            @media (prefers-color-scheme: dark) {
+                :root {
+                    --canvas: #0a0a0a;
+                    --text: #fafafa;
+                    --text-secondary: #a3a3a3;
+                    --border: #262626;
+                }
+            }
+
+            body {
+                margin: 0;
+                padding: 48px 24px;
+                background: var(--canvas);
+                color: var(--text);
+                font:
+                    15px/1.6 -apple-system,
+                    BlinkMacSystemFont,
+                    "Segoe UI",
+                    Roboto,
+                    "Helvetica Neue",
+                    Arial,
+                    sans-serif;
+            }
+
+            main {
+                max-width: 60ch;
+                margin: 0 auto;
+            }
+
+            h1 {
+                margin: 0 0 32px;
+                font-size: 21px;
+                font-weight: 600;
+                letter-spacing: -0.01em;
+            }
+
+            h2 {
+                margin: 32px 0 8px;
+                font-size: 15px;
+                font-weight: 600;
+            }
+
+            p {
+                margin: 0 0 12px;
+                color: var(--text-secondary);
+            }
+
+            a {
+                color: var(--text);
+            }
+
+            footer {
+                margin-top: 48px;
+                padding-top: 16px;
+                border-top: 1px solid var(--border);
+            }
+        </style>
+    </head>
+    <body>
+        <main>
+            <h1>Privacy</h1>
+
+            <h2>What leaves your browser</h2>
+            <p>
+                Nothing you type or paste in the editor is ever sent anywhere. The document is
+                converted to a PDF by your browser, on your device. There is no server that receives
+                your Markdown, because there is no server.
+            </p>
+
+            <h2>What is stored</h2>
+            <p>
+                Nothing. The app uses no cookies, no local storage and no session storage for your
+                content. Page setup choices live in memory only and are forgotten when you close the
+                tab.
+            </p>
+
+            <h2>Accounts, uploads, payment</h2>
+            <p>
+                There are no accounts, no uploads and no payment. The tool opens, it works, it
+                closes.
+            </p>
+
+            <h2>Analytics</h2>
+            <p>
+                If a Cloudflare Web Analytics token is configured at build time, the page loads a
+                cookie-less counter of roughly 11 KB. It records page views and referrers. It never
+                sees your document. If no token is configured, no analytics script is loaded at all.
+            </p>
+
+            <footer>
+                <p>Markdown Exporter is open source under the MIT license.</p>
+            </footer>
+        </main>
+    </body>
+</html>
