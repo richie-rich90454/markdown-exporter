@@ -1,6 +1,5 @@
 import "./styles/tokens.css";
 import "./styles/app.css";
-import "./styles/print-document.css";
 
 import { render } from "solid-js/web";
 
@@ -12,4 +11,7 @@ if (root === null) {
     throw new Error("Missing #root element");
 }
 
-render(() => <App context={createApplicationContext()} />, root);
+const context = createApplicationContext();
+document.documentElement.dataset.theme = context.settingsStore.theme();
+
+render(() => <App context={context} />, root);
