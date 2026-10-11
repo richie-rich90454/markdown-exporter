@@ -9,12 +9,14 @@ const SAMPLE = [
     "",
     "The exporter converts Markdown to PDF inside the browser.",
     "",
-    "- live preview",
-    "- page setup",
-    "- no upload",
+    "## What is new",
+    "",
+    "- live preview with page boundaries",
+    "- page size and margin options",
+    "- syntax highlighting",
     "",
     "| Feature | State |",
-    "| - | - |",
+    "| --- | --- |",
     "| Pagination | Shipped |",
     "",
     "```js",
@@ -41,9 +43,10 @@ test("renders the document into paged previews", async ({ page }) => {
     await expect(page.locator(".page-label").first()).toContainText("Page 1 of");
 
     const status = page.locator(".statusbar");
-    await expect(status).toContainText("Local only");
+    await expect(status).toContainText("Chars");
     await expect(status).toContainText("Pages");
     await expect(status).toContainText("Render");
+    await expect(status).not.toContainText("Local only");
 });
 
 test("shows the empty state before anything is typed", async ({ page }) => {
@@ -75,7 +78,7 @@ test("resizes the split with the keyboard", async ({ page }) => {
     await expect(divider).toHaveAttribute("aria-valuenow", "50");
 });
 
-test("applies page setup changes to the preview and print", async ({ page }) => {
+test("applies page setup changes to the preview", async ({ page }) => {
     await load(page);
     const frame = page.locator(".page-frame").first();
     const heightOf = async (): Promise<number> =>
@@ -91,14 +94,57 @@ test("applies page setup changes to the preview and print", async ({ page }) => 
     expect(await heightOf()).toBe(1056);
 
     await sheet.getByLabel("Margins").selectOption("30");
-    await expect
-        .poll(async () =>
-            page.locator("#page-rule").evaluate((element) => element.textContent ?? "")
-        )
-        .toContain("margin: 30mm");
+    const fontSize = sheet.getByLabel("Font size");
+    await fontSize.fill("14");
+    await fontSize.press("Enter");
+    await expect.poll(() => flowStyle(page)).toContain("--preview-font-size: 18.66");
 
     await sheet.getByRole("button", { name: "Close" }).click();
     await expect(sheet).toBeHidden();
+});
+
+async function flowStyle(page: Page): Promise<string> {
+    return page
+        .locator(".preview__flow")
+        .evaluate((element) => (element as HTMLElement).getAttribute("style") ?? "");
+}
+
+test("toggles between the light and dark theme", async ({ page }) => {
+    await page.goto("/");
+    const root = page.locator("html");
+    const first = await root.getAttribute("data-theme");
+    expect(first === "light" || first === "dark").toBe(true);
+
+    await page.getByRole("button", { name: /theme/i }).click();
+    const second = await root.getAttribute("data-theme");
+    expect(second).not.toBe(first);
+
+    const background = await page
+        .locator("body")
+        .evaluate((element) => getComputedStyle(element).backgroundColor);
+    expect(background).toBe(second === "dark" ? "rgb(10, 10, 10)" : "rgb(255, 255, 255)");
+
+    await page.getByRole("button", { name: /theme/i }).click();
+    await expect(root).toHaveAttribute("data-theme", first ?? "");
+});
+
+test("exports a real PDF file", async ({ page }) => {
+    await load(page);
+
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: /^Export/ }).click();
+    const file = await download;
+
+    expect(file.suggestedFilename()).toBe("release-notes.pdf");
+    const stream = await file.createReadStream();
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+        chunks.push(chunk as Buffer);
+    }
+    const bytes = Buffer.concat(chunks);
+    expect(bytes.subarray(0, 8).toString("latin1")).toBe("%PDF-1.4");
+    expect(bytes.toString("latin1").trimEnd().endsWith("%%EOF")).toBe(true);
+    await expect(page.locator(".statusbar")).toContainText("Saved PDF");
 });
 
 test("exports HTML through the format menu", async ({ page }) => {
@@ -154,7 +200,6 @@ test("breaks content across pages at block boundaries", async ({ page }) => {
         expect(Math.round((pages[index]?.top ?? 0) - (pages[index - 1]?.top ?? 0))).toBe(1147);
     }
 
-    // No block is split: every spacer sits between paragraphs, never inside one.
     await expect(page.locator(".page-spacer")).toHaveCount(pages.length - 1);
     await expect(page.locator(".page-label").last()).toContainText(
         `Page ${pages.length} of ${pages.length}`
