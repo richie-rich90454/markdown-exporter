@@ -1,16 +1,7 @@
-/**
- * The rendered document.
- *
- * ponytail: `content` is a DOM node subtree, not an HTML string. The project
- * memory model forbids the rehype-stringify copy, so the renderer hands the
- * hast to a DomRenderer adapter and the fragment is carried here untouched.
- * `prefix` carries nodes an incremental render proved unchanged; the caller
- * keeps them attached until it commits the new content.
- *
- * `isEmpty` is a snapshot taken at construction. The preview moves the
- * children out of `content` when it mounts them, so a live query would turn
- * non-empty documents empty the moment they are displayed.
- */
+// `content` is the DOM subtree the renderer produced, never an HTML string: the
+// memory budget has no room for a serialize plus parse pair. `prefix` holds the
+// nodes an incremental render proved unchanged, and `isEmpty` is snapshotted at
+// construction because the preview re-parents the nodes when it mounts them.
 export class RenderedDocument {
     readonly isEmpty: boolean;
 
