@@ -14,8 +14,4 @@ export class BrowserFileSaver implements FileSaver {
         // Revoking synchronously can cancel the download in some browsers.
         setTimeout(() => URL.revokeObjectURL(url), 0);
     }
-
-    printCurrentView(): void {
-        window.print();
-    }
 }
