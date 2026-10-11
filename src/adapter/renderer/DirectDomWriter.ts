@@ -1,13 +1,8 @@
 import type { Element, Root, RootContent } from "hast";
 import type { DomRenderer } from "../../port/DomRenderer";
 
-/**
- * Writes a hast tree straight into DOM nodes.
- *
- * No HTML string is ever produced: the tree is walked once and nodes are
- * created directly, which removes the O(n) serialize + O(n) parse pair that
- * rehype-stringify plus innerHTML would cost.
- */
+// Walks hast into DOM nodes instead of building an HTML string for innerHTML,
+// which would hold the document three times at once.
 export class DirectDomWriter implements DomRenderer {
     renderFragment(hast: Root): DocumentFragment {
         const fragment = document.createDocumentFragment();
@@ -31,12 +26,9 @@ export class DirectDomWriter implements DomRenderer {
                 parent.appendChild(document.createComment(node.value));
                 break;
             }
-            case "doctype": {
-                // A doctype is meaningless inside a preview fragment.
-                break;
-            }
+            case "doctype":
             default: {
-                // rehype-sanitize strips raw nodes before they can arrive here.
+                // Neither a doctype nor a raw node belongs inside a fragment.
                 break;
             }
         }
