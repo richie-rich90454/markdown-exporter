@@ -45,11 +45,11 @@ const DOC = [
     "> Local only."
 ].join("\n");
 
-async function exportPdf(page: Page): Promise<string> {
+async function exportPdf(page: Page, name = "chemistry-utility.pdf"): Promise<string> {
     const download = page.waitForEvent("download", { timeout: 25000 });
     await page.getByRole("button", { name: /^Export/ }).click();
     const file = await download;
-    expect(file.suggestedFilename()).toBe("chemistry-utility.pdf");
+    expect(file.suggestedFilename()).toBe(name);
     const stream = await file.createReadStream();
     const chunks: Buffer[] = [];
     for await (const chunk of stream) {
@@ -125,7 +125,7 @@ test("embeds a decodable image and boxes an unreachable one", async ({ page }) =
 
     await page.goto("/");
     await page.getByLabel("Markdown editor").fill(DOC);
-    await expect(page.locator(".preview__flow img").first()).toBeVisible();
+    await expect.poll(async () => page.locator(".preview__flow img").count()).toBe(2);
 
     const pdf = await exportPdf(page);
 
@@ -143,13 +143,83 @@ test("keeps the flow intact when a big block was split", async ({ page }) => {
     const editor = page.getByLabel("Markdown editor");
     await editor.fill(DOC);
 
-    // The table and the long list were split across pages by the preview, so
+    // The table and the long list were split across pages by the layout, so
     // every row and item has to still be in the document.
-    await expect(page.locator(".preview__flow table tr")).toHaveCount(42);
+    await expect(page.locator(".preview__flow table tr")).toHaveCount(41);
     await expect(page.locator(".preview__flow li")).toHaveCount(95);
     await expect(page.locator(".preview__flow img")).toHaveCount(2);
 
     const pdf = await exportPdf(page);
     expect(pdf).toContain("Row 40");
     expect(pdf).toContain("item 90");
+});
+
+test("breaks the preview and the exported file on the same pages", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/");
+    await page.getByLabel("Markdown editor").fill(DOC);
+
+    const frames = page.locator(".page-frame");
+    await expect(page.locator(".preview__flow li")).toHaveCount(95);
+    await expect.poll(async () => frames.count()).toBeGreaterThan(3);
+
+    const pdf = await exportPdf(page);
+    const pages = pagesOf(pdf);
+    const previewFrames = await frames.count();
+
+    // The preview and the export share one layout engine, so a difference here
+    // means the two drifted apart again.
+    expect(pages.length).toBe(previewFrames);
+    expect(pages.length).toBeGreaterThan(3);
+
+    // Every page carries its number, and no page is blank.
+    for (const [index, body] of pages.entries()) {
+        expect(body, `page ${index + 1} has nothing on it`).toMatch(/\(([^)]*)\) Tj/);
+        expect(body).toContain(`(${index + 1} / ${pages.length}) Tj`);
+    }
+});
+
+// The content stream names fonts as /F1, /F2, and the page resources point
+// those names at font objects. This walks that mapping both ways.
+function faceOf(pdf: string, match: RegExpExecArray | null): string | undefined {
+    const name = match?.[1];
+    if (name === undefined) {
+        return undefined;
+    }
+    const resource = new RegExp(`${name} (\\d+) 0 R`).exec(pdf);
+    if (resource === null) {
+        return undefined;
+    }
+    const face = new RegExp(`${resource[1] ?? ""} 0 obj[\\s\\S]*?/BaseFont /([\\w-]+)`).exec(pdf);
+    return face?.[1];
+}
+
+function runFont(pdf: string, text: string): string | undefined {
+    return faceOf(
+        pdf,
+        new RegExp(`(\\/F\\d+) [\\d.]+ Tf [\\d.]+ [\\d.]+ Td \\([^)]*${text}[^)]*\\) Tj`).exec(pdf)
+    );
+}
+
+test("typesets emphasis with the matching base fonts", async ({ page }) => {
+    await page.goto("/");
+    const editor = page.getByLabel("Markdown editor");
+    await editor.fill("# Heading\n\nPlain **bold** and *italic* with `code`.");
+    // The export needs a finished render, so wait for the document itself.
+    await expect(page.locator(".preview__flow h1")).toHaveText("Heading");
+
+    const pdf = await exportPdf(page, "heading.pdf");
+    const fonts = [...pdf.matchAll(/\/BaseFont \/([\w-]+)/g)].map((match) => match[1] ?? "");
+
+    // Bold and italic must not be swapped, and code needs a monospace face.
+    expect(fonts).toContain("Times-Roman");
+    expect(fonts).toContain("Times-Bold");
+    expect(fonts).toContain("Times-Italic");
+    expect(fonts).toContain("Courier");
+
+    expect(runFont(pdf, "Heading")).toBe("Times-Bold");
+    expect(runFont(pdf, "bold")).toBe("Times-Bold");
+    expect(runFont(pdf, "italic")).toBe("Times-Italic");
+    expect(runFont(pdf, "code")).toBe("Courier");
+    expect(runFont(pdf, "Plain")).toBe("Times-Roman");
 });
