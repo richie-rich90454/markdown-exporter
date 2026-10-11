@@ -36,13 +36,9 @@ export class IncrementalMarkdownRenderer extends UnifiedMarkdownRenderer {
         return this.render(next);
     }
 
-    /**
-     * Re-parses only the unstable tail and reuses the frozen prefix nodes.
-     *
-     * `content` holds just the tail nodes; `prefix` holds the nodes that stay
-     * identical. Both arrays are handed to the caller so no DOM node is
-     * detached until the new content is actually accepted.
-     */
+    // Re-parses only the tail after the freeze point and reuses the prefix
+    // nodes by identity. Nothing is detached here: the caller moves the nodes
+    // into place only once it accepts the new content.
     private async renderTail(next: MarkdownDocument): Promise<RenderedDocument | null> {
         const boundary = findStableBoundary(next.source);
         const tailStart = this.frozenSource.length;
@@ -50,9 +46,8 @@ export class IncrementalMarkdownRenderer extends UnifiedMarkdownRenderer {
             return null;
         }
         const hast = await this.toHast(next.source.slice(tailStart));
-        // How many tail blocks are now inside the frozen prefix. Zero is a
-        // normal outcome: the new blank line starts a block that is still
-        // being typed, so the freeze point simply does not move.
+        // Zero is normal: the newest blank line opens a block that is still
+        // being typed, so the freeze point stays where it was.
         const frozenCount = Math.min(
             countBlocksEndingBefore(hast, boundary - tailStart),
             hast.children.length
@@ -95,13 +90,10 @@ function fenceMarker(line: string): string | null {
     return match === null ? null : (match[1] ?? "");
 }
 
-/**
- * Offset of the start of the last top-level block that is safe to freeze.
- *
- * ponytail: line-based heuristic (balanced fences, no list/blockquote joins).
- * It only ever moves the freeze point; a wrong guess costs a full re-render,
- * never a wrong render, because the guards reject the ambiguous cases.
- */
+// Offset of the start of the last top-level block that is safe to freeze.
+// A line heuristic is enough because the guards below reject every case where
+// splitting the source could change how the parser reads it: the worst a
+// mistake does here is a slower render, never a different one.
 function findStableBoundary(source: string): number {
     let boundary = 0;
     let fencesOpen = false;
