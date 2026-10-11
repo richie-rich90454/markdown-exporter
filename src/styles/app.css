@@ -309,6 +309,11 @@ textarea {
     display: flex;
     flex-direction: column;
     min-height: 100%;
+    /* The zoomer is scaled with a transform, which leaves its layout box at the
+       unscaled size. Hiding the overflow here keeps that from becoming a
+       scroll the pane cannot explain, while the pane still scrolls the pages
+       themselves through this box. */
+    overflow: hidden;
 }
 
 .preview__progress {
