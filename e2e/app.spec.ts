@@ -79,13 +79,23 @@ test("resizes the split with the keyboard", async ({ page }) => {
 });
 
 test("applies page setup changes to the preview", async ({ page }) => {
-    await load(page);
+    await page.goto("/");
+    const long = Array.from(
+        { length: 140 },
+        (_, index) => `Paragraph ${index + 1} with enough words to fill a line of text.`
+    ).join("\n\n");
+    await page.getByLabel("Markdown editor").fill(long);
+    await expect.poll(async () => page.locator(".page-frame").count()).toBeGreaterThan(1);
+
     const frame = page.locator(".page-frame").first();
     const heightOf = async (): Promise<number> =>
         Math.round(
             await frame.evaluate((element) => Number.parseFloat(getComputedStyle(element).height))
         );
+    const pagesOf = async (): Promise<number> => page.locator(".page-frame").count();
     expect(await heightOf()).toBe(1123);
+    const pagesBefore = await pagesOf();
+    expect(pagesBefore).toBeGreaterThan(1);
 
     await page.getByRole("button", { name: "Page setup" }).click();
     const sheet = page.getByRole("dialog", { name: "Page setup" });
@@ -97,17 +107,13 @@ test("applies page setup changes to the preview", async ({ page }) => {
     const fontSize = sheet.getByLabel("Font size");
     await fontSize.fill("14");
     await fontSize.press("Enter");
-    await expect.poll(() => flowStyle(page)).toContain("--preview-font-size: 18.66");
+    // The frames are painted from the same layout the export uses, so a larger
+    // font and smaller margins have to push the document onto more pages.
+    await expect.poll(pagesOf).toBeGreaterThan(pagesBefore);
 
     await sheet.getByRole("button", { name: "Close" }).click();
     await expect(sheet).toBeHidden();
 });
-
-async function flowStyle(page: Page): Promise<string> {
-    return page
-        .locator(".preview__flow")
-        .evaluate((element) => (element as HTMLElement).getAttribute("style") ?? "");
-}
 
 test("toggles between the light and dark theme", async ({ page }) => {
     await page.goto("/");
@@ -200,7 +206,7 @@ test("breaks content across pages at block boundaries", async ({ page }) => {
         expect(Math.round((pages[index]?.top ?? 0) - (pages[index - 1]?.top ?? 0))).toBe(1147);
     }
 
-    await expect(page.locator(".page-spacer")).toHaveCount(pages.length - 1);
+    await expect(page.locator(".page-canvas").first()).toBeVisible();
     await expect(page.locator(".page-label").last()).toContainText(
         `Page ${pages.length} of ${pages.length}`
     );
