@@ -1,14 +1,6 @@
 import { baseFont } from "./PdfMetrics";
-import type { LaidOut } from "./PdfLayout";
-import { pageHeightPt, pageWidthPt, type PageSetup } from "../../../domain/PageSetup";
-
-export interface PdfImage {
-    readonly data: Uint8Array;
-    readonly width: number;
-    readonly height: number;
-    readonly jpeg: boolean;
-    readonly gray: boolean;
-}
+import type { LaidOut, PdfImageSource } from "./PdfLayout";
+import { pageHeightPt, pageWidthPt, type PageSetup } from "../PageSetup";
 
 // Windows ANSI beyond ASCII, which is what the base 14 fonts encode through
 // /WinAnsiEncoding.
@@ -44,13 +36,12 @@ const WIN_ANSI: Record<string, number> = {
 
 export function writePdf(
     layout: LaidOut,
-    images: readonly (PdfImage | null)[],
+    images: readonly (PdfImageSource | null)[],
     title: string,
     setup: PageSetup
 ): Uint8Array {
     const pageWidth = pageWidthPt(setup);
     const pageHeight = pageHeightPt(setup);
-    const baseline = (value: number): string => num(pageHeight - value);
 
     const fontIds = new Map<string, number>();
     const fontBases: string[] = [];
@@ -90,19 +81,19 @@ export function writePdf(
                             `${op.font.family}|${op.font.bold}|${op.font.italic}|${op.font.mono}`
                         ) ?? 1;
                     stream.push(
-                        `${shade(op.gray)} BT /F${id} ${num(op.size)} Tf ${num(op.x)} ${baseline(op.y)} Td ${literal(op.text)} Tj ET`
+                        `${shade(op.gray)} BT /F${id} ${num(op.size)} Tf ${num(op.x)} ${num(op.y)} Td ${literal(op.text)} Tj ET`
                     );
                     break;
                 }
                 case "rect": {
                     stream.push(
-                        `${shade(op.gray)} ${num(op.x)} ${baseline(op.y + op.h)} ${num(op.w)} ${num(op.h)} re f`
+                        `${shade(op.gray)} ${num(op.x)} ${num(op.y)} ${num(op.w)} ${num(op.h)} re f`
                     );
                     break;
                 }
                 case "line": {
                     stream.push(
-                        `${shade(op.gray)} ${num(op.width)} w ${num(op.x1)} ${baseline(op.y1)} m ${num(op.x2)} ${baseline(op.y2)} l S`
+                        `${shade(op.gray)} ${num(op.width)} w ${num(op.x1)} ${num(op.y1)} m ${num(op.x2)} ${num(op.y2)} l S`
                     );
                     break;
                 }
@@ -113,13 +104,13 @@ export function writePdf(
                         break;
                     }
                     stream.push(
-                        `q ${num(op.w)} 0 0 ${num(op.h)} ${num(op.x)} ${baseline(op.y + op.h)} cm /Im${op.index + 1} Do Q`
+                        `q ${num(op.w)} 0 0 ${num(op.h)} ${num(op.x)} ${num(op.y)} cm /Im${op.index + 1} Do Q`
                     );
                     break;
                 }
                 case "link": {
                     links.push(
-                        `<< /Type /Annot /Subtype /Link /Rect [${num(op.x)} ${baseline(op.y + op.h)} ${num(op.x + op.w)} ${baseline(op.y)}] /Border [0 0 0] /A << /S /URI /URI ${literal(op.uri)} >> >>`
+                        `<< /Type /Annot /Subtype /Link /Rect [${num(op.x)} ${num(op.y)} ${num(op.x + op.w)} ${num(op.y + op.h)}] /Border [0 0 0] /A << /S /URI /URI ${literal(op.uri)} >> >>`
                     );
                     break;
                 }
