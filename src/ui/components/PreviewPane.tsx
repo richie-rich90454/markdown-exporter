@@ -1,4 +1,12 @@
-import { createEffect, createSignal, onCleanup, onMount, Show, untrack } from "solid-js";
+import {
+    createEffect,
+    createMemo,
+    createSignal,
+    onCleanup,
+    onMount,
+    Show,
+    untrack
+} from "solid-js";
 
 import type { ApplicationContext } from "../../ApplicationContext";
 import {
@@ -51,27 +59,34 @@ export function PreviewPane(props: PreviewPaneProps) {
         onCleanup(() => clearTimeout(timer));
     });
 
-    createEffect(() => {
+    // One snapshot per rendered document. The renderer keeps its own nodes for
+    // the next incremental pass, so the preview works on copies taken once,
+    // which keeps a settings change from re-reading a document that has moved.
+    const staged = createMemo(() => {
         const rendered = store.current();
+        if (rendered === null || rendered.isEmpty) {
+            return null;
+        }
+        return [...rendered.prefix, ...Array.from(rendered.content.childNodes)].map((node) =>
+            node.cloneNode(true)
+        );
+    });
+
+    createEffect(() => {
+        const nodes = staged();
         const settings = settingsStore.current();
         if (flow === undefined || stack === undefined) {
             return;
         }
         applyGeometry(settings, stack);
-        if (rendered === null || rendered.isEmpty) {
+        if (nodes === null) {
             flow.replaceChildren();
             renderEmpty(untrack(activePage));
             return;
         }
-        // The renderer keeps its own nodes for the next incremental pass, so
-        // the preview works on copies: re-running this effect, after a settings
-        // change for instance, has to find the document where it left it.
         const fragment = document.createDocumentFragment();
-        for (const node of rendered.prefix) {
-            fragment.appendChild(node.cloneNode(true));
-        }
-        for (const node of Array.from(rendered.content.childNodes)) {
-            fragment.appendChild(node.cloneNode(true));
+        for (const node of nodes) {
+            fragment.appendChild(node);
         }
         flow.replaceChildren(fragment);
         void relayout(settings);
@@ -348,10 +363,12 @@ function paintPage(
     if (context === null) {
         return;
     }
-    // Canvas pixels count down from the top left, the ops count up from the
-    // bottom left, and the page height in the flip has to be in the same unit
-    // as the ops: mixing in pixels pushes the whole page off the top.
-    context.setTransform(PX_PER_PT * scale, 0, 0, -PX_PER_PT * scale, 0, heightPt * scale);
+    // Points up the page, canvas pixels down it. The transform only scales, so
+    // glyphs and images stay upright, and every op flips its own y: a rect or
+    // an image is placed by its upper edge, which in the op's space is its
+    // bottom edge plus its height.
+    context.setTransform(PX_PER_PT * scale, 0, 0, PX_PER_PT * scale, 0, 0);
+    const down = (value: number): number => heightPt - value;
     context.fillStyle = PAPER;
     context.fillRect(0, 0, widthPt, heightPt);
 
@@ -360,20 +377,20 @@ function paintPage(
             case "text": {
                 context.fillStyle = grayCss(op.gray);
                 context.font = `${op.font.italic ? "italic " : ""}${op.font.bold ? "bold " : ""}${op.size}pt ${fontStack(op.font)}`;
-                context.fillText(op.text, op.x, op.y);
+                context.fillText(op.text, op.x, down(op.y));
                 break;
             }
             case "rect": {
                 context.fillStyle = grayCss(op.gray);
-                context.fillRect(op.x, op.y, op.w, op.h);
+                context.fillRect(op.x, down(op.y + op.h), op.w, op.h);
                 break;
             }
             case "line": {
                 context.strokeStyle = grayCss(op.gray);
                 context.lineWidth = op.width;
                 context.beginPath();
-                context.moveTo(op.x1, op.y1);
-                context.lineTo(op.x2, op.y2);
+                context.moveTo(op.x1, down(op.y1));
+                context.lineTo(op.x2, down(op.y2));
                 context.stroke();
                 break;
             }
@@ -381,7 +398,7 @@ function paintPage(
                 const src = layout.images[op.index]?.src ?? "";
                 const bitmap = decoded.get(src);
                 if (bitmap !== undefined && bitmap !== null) {
-                    context.drawImage(bitmap, op.x, op.y, op.w, op.h);
+                    context.drawImage(bitmap, op.x, down(op.y + op.h), op.w, op.h);
                 }
                 break;
             }
