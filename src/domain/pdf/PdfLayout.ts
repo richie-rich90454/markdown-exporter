@@ -84,6 +84,14 @@ export interface ImageRef {
     readonly height: number;
 }
 
+export interface PdfImageSource {
+    readonly data: Uint8Array;
+    readonly width: number;
+    readonly height: number;
+    readonly jpeg: boolean;
+    readonly gray: boolean;
+}
+
 export interface LaidOut {
     readonly pages: readonly (readonly DrawOp[])[];
     readonly images: readonly ImageRef[];
