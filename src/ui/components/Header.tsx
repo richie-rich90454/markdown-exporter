@@ -54,7 +54,7 @@ export function Header(props: HeaderProps) {
 
     return (
         <header class="header">
-            <span class="wordmark">Markdown Exporter</span>
+            <h1 class="wordmark">Markdown Exporter</h1>
             <div class="header__actions">
                 <Show when={props.showPaneToggle}>
                     <button
