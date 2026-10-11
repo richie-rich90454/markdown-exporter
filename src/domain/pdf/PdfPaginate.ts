@@ -102,9 +102,9 @@ export function paginate(
 ): LaidOut {
     const cursor = new Cursor(setup);
 
-    for (const block of blocks) {
-        place(block, cursor, cursor.outer, embeds);
-    }
+    blocks.forEach((block, index) => {
+        place(block, cursor, cursor.outer, embeds, index === 0 || cursor.y >= cursor.top);
+    });
 
     const pages = cursor.pages.map((ops, index) => [
         ...ops,
@@ -131,22 +131,28 @@ function place(
     block: Block,
     cursor: Cursor,
     area: Area,
-    embeds: ReadonlyMap<string, boolean>
+    embeds: ReadonlyMap<string, boolean>,
+    firstOnPage = false
 ): void {
+    // Blocks keep their own breathing room, the way a styled document does,
+    // except at the top of a page where a gap would just waste space.
+    if (!firstOnPage) {
+        cursor.y -= gapFor(block, cursor);
+    }
     switch (block.kind) {
         case "group": {
-            for (const child of block.blocks) {
-                place(child, cursor, area, embeds);
-            }
+            block.blocks.forEach((child, index) => {
+                place(child, cursor, area, embeds, index === 0 || cursor.y >= cursor.top);
+            });
             return;
         }
         case "quote": {
             const startPage = cursor.page;
             const startY = cursor.y;
             const inner: Area = { x: area.x + QUOTE_INDENT, width: area.width - QUOTE_INDENT };
-            for (const child of block.blocks) {
-                place(child, cursor, inner, embeds);
-            }
+            block.blocks.forEach((child, index) => {
+                place(child, cursor, inner, embeds, index === 0 || cursor.y >= cursor.top);
+            });
             // The bar stops at the last line the quote actually drew instead of
             // wherever the cursor came to rest.
             const end = cursor.lastText;
@@ -201,6 +207,28 @@ function place(
             cursor.y -= RULE_GAP;
             return;
         }
+    }
+}
+
+// Space above a block, as a share of a body line. Headings lean back, list
+// items barely separate at all.
+function gapFor(block: Block, cursor: Cursor): number {
+    const line = bodySizePt(cursor.setup) * cursor.setup.lineHeight;
+    switch (block.kind) {
+        case "heading":
+            return line * (block.level <= 2 ? 1.1 : 0.85);
+        case "paragraph":
+        case "group":
+            return line * 0.55;
+        case "code":
+        case "table":
+        case "image":
+        case "quote":
+            return line * 0.75;
+        case "rule":
+            return line * 0.75;
+        case "list":
+            return line * 0.6;
     }
 }
 
@@ -487,12 +515,16 @@ function placeList(
     const size = bodySizePt(cursor.setup);
     const marker = font(false, false, false, cursor.setup.fontFamily);
     const inner: Area = { x: area.x + LIST_GUTTER, width: area.width - LIST_GUTTER };
+    const itemGap = size * cursor.setup.lineHeight * 0.2;
     let number = 1;
-    for (const item of items) {
-        const start = cursor.y;
-        for (const block of item) {
-            place(block, cursor, inner, embeds);
+    items.forEach((item, index) => {
+        if (index > 0) {
+            cursor.y -= itemGap;
         }
+        const start = cursor.y;
+        item.forEach((block, blockIndex) => {
+            place(block, cursor, inner, embeds, blockIndex === 0 || cursor.y >= cursor.top);
+        });
         cursor.emit({
             kind: "text",
             x: area.x,
@@ -503,7 +535,7 @@ function placeList(
             gray: INK
         });
         number += 1;
-    }
+    });
 }
 
 function placeTable(
@@ -593,19 +625,31 @@ function placeTable(
         openBottom = top - rowHeight;
     };
 
+    // The header row belongs above the body on every page the table reaches,
+    // not only after a break, and it repeats after each one.
+    let headerDrawn = false;
+    const drawHeader = (): void => {
+        if (headerDrawn || head.length === 0) {
+            return;
+        }
+        if (cursor.y - (size * setup.lineHeight + 2 * CELL_PAD) < cursor.bottom) {
+            closeRow();
+            cursor.newPage();
+        }
+        drawRow(head, true);
+        headerDrawn = true;
+    };
+
     for (const row of body) {
         if (cursor.y - (size * setup.lineHeight + 2 * CELL_PAD) < cursor.bottom) {
             closeRow();
             cursor.newPage();
-            if (head.length > 0) {
-                drawRow(head, true);
-            }
+            headerDrawn = false;
         }
+        drawHeader();
         drawRow(row, false);
     }
-    if (body.length === 0 && head.length > 0) {
-        drawRow(head, true);
-    }
+    drawHeader();
     closeRow();
 }
 
