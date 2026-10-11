@@ -17,8 +17,7 @@
     --border-strong: #d4d4d4;
     --text: #0a0a0a;
     --text-secondary: #6b6b6b;
-    /* Darkened from the spec palette (#999999) so 11px metadata still clears
-       WCAG AA (4.5:1) on both --canvas and --surface. */
+    /* Darkened from #999999 so 11px metadata clears WCAG AA on the canvas. */
     --text-tertiary: #6e6e6e;
     --focus: #0a0a0a;
     --danger: #c81e1e;
@@ -78,19 +77,17 @@
     --hljs-emphasis-font-style: italic;
 }
 
-@media (prefers-color-scheme: dark) {
-    :root {
-        --canvas: #0a0a0a;
-        --surface: #141414;
-        --page: #1a1a1a;
-        --border: #262626;
-        --border-strong: #3a3a3a;
-        --text: #fafafa;
-        --text-secondary: #a3a3a3;
-        /* Lightened from the spec palette (#737373) for the same reason. */
-        --text-tertiary: #8c8c8c;
-        --focus: #fafafa;
-        --danger: #f87171;
-        --shadow-overlay: 0 4px 16px rgba(0, 0, 0, 0.4);
-    }
+[data-theme="dark"] {
+    --canvas: #0a0a0a;
+    --surface: #141414;
+    --page: #1a1a1a;
+    --border: #262626;
+    --border-strong: #3a3a3a;
+    --text: #fafafa;
+    --text-secondary: #a3a3a3;
+    /* Lightened from #737373 for the same reason. */
+    --text-tertiary: #8c8c8c;
+    --focus: #fafafa;
+    --danger: #f87171;
+    --shadow-overlay: 0 4px 16px rgba(0, 0, 0, 0.4);
 }
