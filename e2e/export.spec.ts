@@ -1,0 +1,155 @@
+import { expect, test, type Page } from "@playwright/test";
+
+const VALID_PNG =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAaklEQVR4nBWNQREAQQzCkFIpSKmUSEFKpSDlbnlmmEQSIyxWICJOVEjDDB52YMhwQwfJjLFZg4k5UyMts3jZhSXLLV2kJ8APvgUO+ucUJjhsHk640PyNYw4fe++c447e3yhTXLZPkXKl5QPGe1gBrfdehAAAAABJRU5ErkJggg==";
+
+const DOC = [
+    "# Chemistry Utility",
+    "",
+    "> A research-grade chemistry utility for chemists, researchers, and students.",
+    "",
+    "Built with **Vite**, the *Lab Parchment* design system, and a WebAssembly-powered shell.",
+    "",
+    "---",
+    "",
+    "## Table of Contents",
+    "",
+    "- License",
+    "- Contributing",
+    "- Architecture",
+    "",
+    "## Platform",
+    "",
+    "| Feature | Description |",
+    "| --- | --- |",
+    ...Array.from(
+        { length: 40 },
+        (_, index) => `| Row ${index + 1} | description of row ${index + 1} |`
+    ),
+    "",
+    "## Long list",
+    "",
+    ...Array.from({ length: 90 }, (_, index) => `- item ${index + 1} with enough words to wrap`),
+    "",
+    "![badge](" + VALID_PNG + ")",
+    "",
+    "![blocked](https://example.invalid/nope.png)",
+    "",
+    "```js",
+    'const pages = document.querySelectorAll(".page-frame");',
+    "```",
+    "",
+    "1. Open the app",
+    "2. Paste a formula",
+    "",
+    "> Local only."
+].join("\n");
+
+async function exportPdf(page: Page): Promise<string> {
+    const download = page.waitForEvent("download", { timeout: 25000 });
+    await page.getByRole("button", { name: /^Export/ }).click();
+    const file = await download;
+    expect(file.suggestedFilename()).toBe("chemistry-utility.pdf");
+    const stream = await file.createReadStream();
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+        chunks.push(chunk as Buffer);
+    }
+    return new TextDecoder("latin1").decode(Buffer.concat(chunks));
+}
+
+function pagesOf(pdf: string): string[] {
+    return [...pdf.matchAll(/stream\n([\s\S]*?)\nendstream/g)]
+        .map((match) => match[1] ?? "")
+        .filter((body) => body.includes("Tj") || body.includes("Do"));
+}
+
+test("exports every block type of a real document", async ({ page }) => {
+    await page.goto("/");
+    await page.getByLabel("Markdown editor").fill(DOC);
+    await expect(page.locator(".preview__flow blockquote p")).toHaveCount(2);
+
+    const pdf = await exportPdf(page);
+    const pages = pagesOf(pdf);
+
+    expect(pdf.startsWith("%PDF-1.4")).toBe(true);
+    expect(pdf.trimEnd().endsWith("%%EOF")).toBe(true);
+    expect(pages.length).toBeGreaterThan(3);
+
+    for (const needle of [
+        "Chemistry Utility",
+        "Row 1",
+        "Row 40",
+        "item 1",
+        "item 90",
+        "Local only"
+    ]) {
+        expect(pdf).toContain(needle);
+    }
+
+    // Nothing is drawn outside the media box, and no two runs share a slot.
+    const media = /\/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/.exec(pdf);
+    const width = Number(media?.[1] ?? 0);
+    const height = Number(media?.[2] ?? 0);
+    const slots = new Map<string, string[]>();
+    let pageIndex = 0;
+    for (const body of pages) {
+        pageIndex += 1;
+        for (const op of body.split("\n")) {
+            if (!op.includes(" Td ")) {
+                continue;
+            }
+            const pos = /([\d.-]+) ([-\d.]+) Td/.exec(op);
+            const x = Number(pos?.[1] ?? 0);
+            const y = Number(pos?.[2] ?? 0);
+            expect(y).toBeGreaterThanOrEqual(0);
+            expect(y).toBeLessThanOrEqual(height);
+            expect(x).toBeGreaterThanOrEqual(0);
+            expect(x).toBeLessThanOrEqual(width);
+            const key = `${pageIndex}|${x}|${y}`;
+            slots.set(key, [...(slots.get(key) ?? []), /\(([^)]*)\)/.exec(op)?.[1] ?? ""]);
+        }
+    }
+    for (const [slot, texts] of slots) {
+        expect(texts.length, `runs overlapping at ${slot}`).toBeLessThanOrEqual(1);
+    }
+});
+
+test("embeds a decodable image and boxes an unreachable one", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("console", (message) => {
+        if (message.type() === "error") {
+            errors.push(message.text());
+        }
+    });
+
+    await page.goto("/");
+    await page.getByLabel("Markdown editor").fill(DOC);
+    await expect(page.locator(".preview__flow img").first()).toBeVisible();
+
+    const pdf = await exportPdf(page);
+
+    expect([...pdf.matchAll(/\/Subtype \/Image/g)]).toHaveLength(1);
+    expect([...pdf.matchAll(/ cm \/Im1 Do/g)]).toHaveLength(1);
+    expect(pdf).toContain("/Filter /FlateDecode");
+
+    // The blocked remote image is replaced by its alt text, never a crash.
+    expect(pagesOf(pdf).some((body) => body.includes("(blocked)"))).toBe(true);
+    expect(errors.filter((message) => message.includes("could not be decoded"))).toHaveLength(0);
+});
+
+test("keeps the flow intact when a big block was split", async ({ page }) => {
+    await page.goto("/");
+    const editor = page.getByLabel("Markdown editor");
+    await editor.fill(DOC);
+
+    // The table and the long list were split across pages by the preview, so
+    // every row and item has to still be in the document.
+    await expect(page.locator(".preview__flow table tr")).toHaveCount(42);
+    await expect(page.locator(".preview__flow li")).toHaveCount(95);
+    await expect(page.locator(".preview__flow img")).toHaveCount(2);
+
+    const pdf = await exportPdf(page);
+    expect(pdf).toContain("Row 40");
+    expect(pdf).toContain("item 90");
+});
