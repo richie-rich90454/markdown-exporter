@@ -390,6 +390,7 @@ textarea {
     left: 0;
     z-index: 0;
     width: var(--page-width);
+    overflow: hidden;
     border: 1px solid var(--border-strong);
     background: var(--page);
 }
@@ -646,13 +647,6 @@ textarea {
 .statusbar__value {
     color: var(--text);
     font-variant-numeric: tabular-nums;
-}
-
-.statusbar__dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--text);
 }
 
 .statusbar__status {
