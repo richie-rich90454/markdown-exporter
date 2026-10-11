@@ -15,8 +15,7 @@ Converts Markdown to PDF in the browser.
 1. Open the page.
 2. Type or paste Markdown into the editor.
 3. Adjust page setup if the document needs a different page size or margin.
-4. Click Export.
-5. Choose Save as PDF in the print dialog.
+4. Click Export and pick a format; the file is written in the browser.
 
 ## Privacy
 
