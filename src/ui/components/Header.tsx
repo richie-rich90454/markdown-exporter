@@ -68,7 +68,13 @@ export function Header(props: HeaderProps) {
                 <button
                     type="button"
                     class="button button--ghost"
-                    onClick={() => window.open("/privacy.html", "_blank", "noopener")}
+                    onClick={() =>
+                        window.open(
+                            new URL("privacy.html", document.baseURI).href,
+                            "_blank",
+                            "noopener"
+                        )
+                    }
                 >
                     Privacy
                 </button>
