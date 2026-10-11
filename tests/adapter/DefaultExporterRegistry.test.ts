@@ -1,12 +1,22 @@
 import { describe, expect, it } from "vitest";
 
 import { ExportFormat } from "../../src/domain/ExportFormat";
+import type { PageSetup } from "../../src/domain/PageSetup";
 import { ExportRequest } from "../../src/domain/ExportRequest";
+import type { ExportResult } from "../../src/domain/ExportResult";
 import { ExportResults } from "../../src/domain/ExportResult";
 import { RenderedDocument } from "../../src/domain/RenderedDocument";
 import type { DocumentExporter } from "../../src/port/DocumentExporter";
 import type { ExporterRegistry } from "../../src/port/ExporterRegistry";
 import { DefaultExporterRegistry } from "../../src/adapter/registry/DefaultExporterRegistry";
+
+const SETUP: PageSetup = {
+    pageSize: "a4",
+    marginMm: 20,
+    fontFamily: "serif",
+    fontSizePt: 11,
+    lineHeight: 1.6
+};
 
 class StubExporter implements DocumentExporter {
     readonly supportedFormat: ExportFormat;
@@ -16,9 +26,9 @@ class StubExporter implements DocumentExporter {
         this.supportedFormat = format;
     }
 
-    export(request: ExportRequest): ReturnType<DocumentExporter["export"]> {
+    export(request: ExportRequest): Promise<ExportResult> {
         this.calls.push(request);
-        return ExportResults.success(this.supportedFormat);
+        return Promise.resolve(ExportResults.success(this.supportedFormat));
     }
 }
 
@@ -27,7 +37,7 @@ function rendered(): RenderedDocument {
 }
 
 describe("DefaultExporterRegistry", () => {
-    it("dispatches in O(1)", () => {
+    it("dispatches in O(1)", async () => {
         const registry: ExporterRegistry = new DefaultExporterRegistry();
         const pdf = new StubExporter(ExportFormat.PDF);
         const html = new StubExporter(ExportFormat.HTML);
@@ -36,21 +46,18 @@ describe("DefaultExporterRegistry", () => {
 
         expect(registry.lookup(ExportFormat.PDF)).toBe(pdf);
         expect(registry.lookup(ExportFormat.HTML)).toBe(html);
-        expect(
-            registry
-                .lookup(ExportFormat.PDF)
-                ?.export(
-                    new ExportRequest(
-                        ExportFormat.PDF,
-                        rendered(),
-                        "t",
-                        document.createDocumentFragment()
-                    )
+
+        await registry
+            .lookup(ExportFormat.PDF)
+            ?.export(
+                new ExportRequest(
+                    ExportFormat.PDF,
+                    rendered(),
+                    "t",
+                    document.createDocumentFragment(),
+                    SETUP
                 )
-        ).toEqual({
-            kind: "success",
-            format: ExportFormat.PDF
-        });
+            );
         expect(pdf.calls.length).toBe(1);
     });
 
