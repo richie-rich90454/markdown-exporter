@@ -6,7 +6,7 @@ import {
     pageHeightPt,
     pageWidthPt,
     type PageSetup
-} from "../../../domain/PageSetup";
+} from "../PageSetup";
 import { font, textWidth, type FontKey } from "./PdfMetrics";
 import type { Block, DrawOp, ImageRef, LaidOut, Run } from "./PdfLayout";
 
@@ -21,7 +21,6 @@ const LIST_GUTTER = 18;
 const CELL_PAD = 5;
 const RULE_GAP = 6;
 const FOOTER_SIZE = 9;
-const MIN_FILL = 96;
 const PLACEHOLDER_WIDTH = 160;
 const PLACEHOLDER_HEIGHT = 90;
 
@@ -48,6 +47,7 @@ class Cursor {
     y: number;
     readonly images: ImageRef[] = [];
     readonly fonts = new Set<FontKey>();
+    lastText: { readonly page: number; readonly y: number } | undefined;
 
     constructor(readonly setup: PageSetup) {
         this.y = this.top;
@@ -74,11 +74,13 @@ class Cursor {
             this.pages.push([]);
         }
         this.y = this.top;
+        this.lastText = undefined;
     }
 
     emit(op: DrawOp): void {
         if (op.kind === "text") {
             this.fonts.add(op.font);
+            this.lastText = { page: this.page, y: op.y };
         }
         this.pages[this.page]?.push(op);
     }
@@ -145,14 +147,21 @@ function place(
             for (const child of block.blocks) {
                 place(child, cursor, inner, embeds);
             }
-            drawQuoteBar(cursor, area, startPage, startY, cursor.page, cursor.y);
+            // The bar stops at the last line the quote actually drew instead of
+            // wherever the cursor came to rest.
+            const end = cursor.lastText;
+            const endY = end !== undefined && end.page === cursor.page ? end.y : cursor.y;
+            drawQuoteBar(cursor, area, startPage, startY, cursor.page, endY);
             return;
         }
         case "heading": {
             const size = headingSizePt(cursor.setup, block.level);
             const lines = wrap(block.runs, area.width, cursor, size, true);
             const height = lines.length * size * cursor.setup.lineHeight;
-            if (cursor.y - height < cursor.bottom && cursor.y < cursor.top) {
+            const bodyLine = bodySizePt(cursor.setup) * cursor.setup.lineHeight;
+            // A heading alone at the foot of a page reads as a mistake, so it
+            // moves when not even one body line fits under it.
+            if (cursor.y - height - bodyLine < cursor.bottom && cursor.y < cursor.top) {
                 cursor.newPage();
             }
             drawLines(lines, area.x, cursor);
@@ -257,7 +266,8 @@ function drawLines(lines: readonly Line[], x: number, cursor: Cursor): void {
 // Consecutive words in the same style are written as one string, so the
 // content stream stays close to a word count instead of one show per word.
 function drawLine(line: Line, x: number, baseline: number, cursor: Cursor): void {
-    let offset = x;
+    let position = x;
+    let groupStart = x;
     let pending: Piece | undefined;
     let pendingWidth = 0;
 
@@ -267,7 +277,7 @@ function drawLine(line: Line, x: number, baseline: number, cursor: Cursor): void
         }
         cursor.emit({
             kind: "text",
-            x: offset - pendingWidth,
+            x: groupStart,
             y: baseline,
             text: pending.text,
             font: pending.key,
@@ -277,7 +287,7 @@ function drawLine(line: Line, x: number, baseline: number, cursor: Cursor): void
         if (pending.link !== undefined) {
             cursor.emit({
                 kind: "rect",
-                x: offset - pendingWidth,
+                x: groupStart,
                 y: baseline - 1.5,
                 w: pendingWidth,
                 h: 0.6,
@@ -285,7 +295,7 @@ function drawLine(line: Line, x: number, baseline: number, cursor: Cursor): void
             });
             cursor.emit({
                 kind: "link",
-                x: offset - pendingWidth,
+                x: groupStart,
                 y: baseline - 1.5,
                 w: pendingWidth,
                 h: line.height,
@@ -298,24 +308,28 @@ function drawLine(line: Line, x: number, baseline: number, cursor: Cursor): void
 
     for (const piece of line.pieces) {
         const width = textWidth(piece.text, piece.key, piece.size);
-        offset += width;
         const continues =
             pending !== undefined &&
             pending.key === piece.key &&
             pending.size === piece.size &&
             pending.link === piece.link;
-        if (pending !== undefined && continues) {
+        if (pending !== undefined && !continues) {
+            flush();
+        }
+        if (pending === undefined) {
+            groupStart = position;
+            pending = { text: piece.text, key: piece.key, size: piece.size, link: piece.link };
+            pendingWidth = width;
+        } else {
             pending = {
                 text: `${pending.text}${piece.text}`,
                 key: pending.key,
                 size: pending.size,
                 link: pending.link
             };
-        } else {
-            flush();
-            pending = { text: piece.text, key: piece.key, size: piece.size, link: piece.link };
+            pendingWidth += width;
         }
-        pendingWidth += width;
+        position += width;
     }
     flush();
 }
@@ -475,14 +489,14 @@ function placeList(
     const inner: Area = { x: area.x + LIST_GUTTER, width: area.width - LIST_GUTTER };
     let number = 1;
     for (const item of items) {
-        const first = cursor.y;
+        const start = cursor.y;
         for (const block of item) {
             place(block, cursor, inner, embeds);
         }
         cursor.emit({
             kind: "text",
             x: area.x,
-            y: first - size * cursor.setup.lineHeight + size * 0.25,
+            y: start - size * cursor.setup.lineHeight,
             text: ordered ? `${number}.` : "\u2022",
             font: marker,
             size,
@@ -654,5 +668,4 @@ function placeImage(
         }
     }
     cursor.y = top - drawHeight;
-    void MIN_FILL;
 }
