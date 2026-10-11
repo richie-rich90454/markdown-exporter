@@ -1,4 +1,4 @@
-import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 
 import type { ApplicationContext } from "../ApplicationContext";
 import type { ExportFormat } from "../domain/ExportFormat";
@@ -67,7 +67,6 @@ export function App(props: AppProps) {
         applyMedia();
         media.addEventListener("change", applyMedia);
         onCleanup(() => media.removeEventListener("change", applyMedia));
-
         const onKeyDown = (event: KeyboardEvent): void => {
             if (!event.metaKey && !event.ctrlKey) {
                 return;
@@ -75,7 +74,7 @@ export function App(props: AppProps) {
             switch (event.key.toLowerCase()) {
                 case "e": {
                     event.preventDefault();
-                    exportActiveFormat(exportStore.activeFormat());
+                    void exportActiveFormat(exportStore.activeFormat());
                     break;
                 }
                 case ",": {
@@ -102,6 +101,10 @@ export function App(props: AppProps) {
         onCleanup(() => window.removeEventListener("keydown", onKeyDown));
 
         editorTextarea?.focus();
+    });
+
+    createEffect(() => {
+        document.documentElement.dataset.theme = context.settingsStore.theme();
     });
 
     onCleanup(() => {
@@ -162,7 +165,7 @@ export function App(props: AppProps) {
         }, ANNOUNCE_IDLE_MS);
     }
 
-    function exportActiveFormat(format: ExportFormat): void {
+    async function exportActiveFormat(format: ExportFormat): Promise<void> {
         const rendered = previewStore.current();
         if (rendered === null || rendered.isEmpty) {
             exportStore.fail("Write some Markdown before exporting.");
@@ -173,7 +176,13 @@ export function App(props: AppProps) {
             return;
         }
         exportStore.begin();
-        exportStore.settle(context.exportController.export(format, rendered, previewFlow));
+        const result = await context.exportController.export(
+            format,
+            rendered,
+            previewFlow,
+            context.settingsStore.current()
+        );
+        exportStore.settle(result);
     }
 
     function togglePageSetup(): void {
@@ -231,8 +240,8 @@ export function App(props: AppProps) {
                     setPane((current) => (current === "write" ? "preview" : "write"))
                 }
                 onOpenPageSetup={() => togglePageSetup()}
-                onExport={(format) => exportActiveFormat(format)}
-                onExportActive={() => exportActiveFormat(exportStore.activeFormat())}
+                onExport={(format) => void exportActiveFormat(format)}
+                onExportActive={() => void exportActiveFormat(exportStore.activeFormat())}
             />
             <main
                 class="app__main"
