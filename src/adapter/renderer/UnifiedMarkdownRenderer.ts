@@ -14,9 +14,15 @@ import type { DomRenderer } from "../../port/DomRenderer";
 import type { MarkdownRenderer } from "../../port/MarkdownRenderer";
 
 // rehype-highlight emits <code class="language-x"> and <span class="hljs-*">,
-// which the GitHub schema would strip, so both are re-allowed here.
+// which the GitHub schema would strip, so both are re-allowed here. Data URLs
+// are re-allowed on src for pasted images: only img, picture and source can
+// carry src in this schema, and an SVG inside an img never runs script.
 const sanitizeSchema: SanitizeSchema = {
     ...defaultSchema,
+    protocols: {
+        ...defaultSchema.protocols,
+        src: [...(defaultSchema.protocols?.src ?? []), "data"]
+    },
     attributes: {
         ...defaultSchema.attributes,
         code: [["className", /^language-/]],
@@ -61,10 +67,9 @@ export class UnifiedMarkdownRenderer implements MarkdownRenderer {
     protected async toHast(source: string): Promise<HastRoot> {
         const mdast = this.processor.parse(source);
         const hast = await this.processor.run(mdast);
-        // remark-rehype keeps the blank lines between blocks as root level
-        // whitespace text nodes. They carry no content and would break the
-        // one node per top level block mapping the paginator and the
-        // incremental renderer rely on.
+        // remark-rehype keeps the blank lines between blocks as whitespace text
+        // nodes. Pagination and the incremental split both assume one node per
+        // top-level block, so they go.
         hast.children = hast.children.filter(
             (child) => !(child.type === "text" && child.value.trim().length === 0)
         );
