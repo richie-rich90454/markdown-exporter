@@ -6,10 +6,9 @@ import { ExportRequest } from "../../src/domain/ExportRequest";
 import type { PageSetup } from "../../src/domain/PageSetup";
 import { RenderedDocument } from "../../src/domain/RenderedDocument";
 import type { FileSaver } from "../../src/port/FileSaver";
-import { parseBlocks } from "../../src/adapter/exporter/pdf/PdfLayout";
-import { paginate } from "../../src/adapter/exporter/pdf/PdfPaginate";
-import type { PdfImage } from "../../src/adapter/exporter/pdf/PdfWriter";
-import { writePdf } from "../../src/adapter/exporter/pdf/PdfWriter";
+import { parseBlocks, type PdfImageSource } from "../../src/domain/pdf/PdfLayout";
+import { paginate } from "../../src/domain/pdf/PdfPaginate";
+import { writePdf } from "../../src/domain/pdf/PdfWriter";
 
 const SETUP: PageSetup = {
     pageSize: "a4",
@@ -64,7 +63,7 @@ describe("images in the PDF", () => {
             layout,
             [
                 { data: new Uint8Array([1, 2, 3]), width: 120, height: 60, jpeg: true, gray: false }
-            ] as PdfImage[],
+            ] as PdfImageSource[],
             "Notes",
             SETUP
         );
