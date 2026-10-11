@@ -4,6 +4,7 @@ import { ExportRequest } from "../domain/ExportRequest";
 import type { ExportResult } from "../domain/ExportResult";
 import { ExportResults } from "../domain/ExportResult";
 import type { RenderedDocument } from "../domain/RenderedDocument";
+import type { PageSetup } from "../domain/PageSetup";
 import type { ExporterRegistry } from "../port/ExporterRegistry";
 
 export class ExportController {
@@ -13,15 +14,20 @@ export class ExportController {
         return this.registry.listAvailableFormats();
     }
 
-    export(format: ExportFormat, rendered: RenderedDocument, content: Node): ExportResult {
+    async export(
+        format: ExportFormat,
+        rendered: RenderedDocument,
+        content: Node,
+        pageSetup: PageSetup
+    ): Promise<ExportResult> {
         const exporter = this.registry.lookup(format);
         if (exporter === undefined) {
             const label = EXPORT_FORMAT_LABELS[format];
             return ExportResults.failure(format, `No exporter is registered for ${label}.`);
         }
-        const request = new ExportRequest(format, rendered, rendered.title, content);
+        const request = new ExportRequest(format, rendered, rendered.title, content, pageSetup);
         try {
-            return exporter.export(request);
+            return await exporter.export(request);
         } catch (error) {
             return ExportResults.failure(format, describe(error));
         }
