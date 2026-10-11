@@ -4,5 +4,5 @@ import type { ExportResult } from "../domain/ExportResult";
 
 export interface DocumentExporter {
     readonly supportedFormat: ExportFormat;
-    export(request: ExportRequest): ExportResult;
+    export(request: ExportRequest): Promise<ExportResult>;
 }
