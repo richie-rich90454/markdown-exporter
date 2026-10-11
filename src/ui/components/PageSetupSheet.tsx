@@ -1,8 +1,8 @@
 import { For, onMount } from "solid-js";
 
 import type { ApplicationContext } from "../../ApplicationContext";
-import { FONT_OPTIONS, MARGIN_OPTIONS, PAGE_SIZES } from "../../state/SettingsStore";
-import type { FontFamilyId, PageSizeId } from "../../state/SettingsStore";
+import { FONT_OPTIONS, MARGIN_OPTIONS, PAGE_SIZES } from "../../domain/PageSetup";
+import type { FontFamilyId, PageSizeId } from "../../domain/PageSetup";
 
 export interface PageSetupSheetProps {
     context: ApplicationContext;
