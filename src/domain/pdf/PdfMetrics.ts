@@ -1,4 +1,4 @@
-import type { FontFamilyId } from "../../../domain/PageSetup";
+import type { FontFamilyId } from "../PageSetup";
 
 export interface FontKey {
     readonly family: FontFamilyId;
@@ -18,7 +18,6 @@ const BASES: Record<FontFamilyId, readonly string[]> = {
     sans: ["Helvetica", "Helvetica-Bold", "Helvetica-Oblique", "Helvetica-BoldOblique"],
     mono: ["Courier", "Courier-Bold", "Courier-Oblique", "Courier-BoldOblique"]
 };
-
 // Advance widths per 1000 units for ASCII 32..126. The browser measures the
 // real fonts, which are metric compatible with the base 14 fonts named below;
 // these tables cover the environments without a canvas.
@@ -39,9 +38,15 @@ export function font(bold: boolean, italic: boolean, mono: boolean, family: Font
     return { family, bold, italic, mono };
 }
 
+// The CSS stack a renderer asks the browser for; metric compatible with the
+// base 14 font the PDF names, which keeps preview and export in step.
+export function fontStack(key: FontKey): string {
+    return STACKS[key.mono ? "mono" : key.family];
+}
+
 export function baseFont(key: FontKey): string {
     const bases = BASES[key.mono ? "mono" : key.family];
-    const index = (key.bold ? 2 : 0) + (key.italic ? 1 : 0);
+    const index = (key.bold ? 1 : 0) + (key.italic ? 2 : 0);
     return bases[index] ?? "Times-Roman";
 }
 
