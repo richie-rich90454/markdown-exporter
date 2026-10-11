@@ -58,6 +58,10 @@ function contentSecurityPolicy(): Plugin {
 }
 
 export default defineConfig({
+    // Relative asset URLs: the page is served both from the repository root and
+    // from a project page such as username.github.io/markdown-exporter, and a
+    // fixed base only works for one of the two.
+    base: "./",
     plugins: [solid(), cloudflareBeacon(), contentSecurityPolicy()],
     build: {
         target: "es2022"
