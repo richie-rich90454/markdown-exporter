@@ -9,13 +9,7 @@ import {
 } from "solid-js";
 
 import type { ApplicationContext } from "../../ApplicationContext";
-import {
-    PAGE_SIZES,
-    PX_PER_MM,
-    pageHeightPt,
-    pageWidthPt,
-    type PageSetup
-} from "../../domain/PageSetup";
+import { PAGE_SIZES, PX_PER_MM, pageHeightPt, type PageSetup } from "../../domain/PageSetup";
 import { fontStack } from "../../domain/pdf/PdfMetrics";
 import type { DrawOp, LaidOut } from "../../domain/pdf/PdfLayout";
 import { parseBlocks } from "../../domain/pdf/PdfLayout";
@@ -352,7 +346,6 @@ function paintPage(
     decoded: ReadonlyMap<string, ImageBitmap | null>
 ): void {
     const page = pagePixels(settings);
-    const widthPt = pageWidthPt(settings);
     const heightPt = pageHeightPt(settings);
     const scale = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
     canvas.width = Math.round(page.width * scale);
@@ -363,34 +356,35 @@ function paintPage(
     if (context === null) {
         return;
     }
-    // Points up the page, canvas pixels down it. The transform only scales, so
-    // glyphs and images stay upright, and every op flips its own y: a rect or
-    // an image is placed by its upper edge, which in the op's space is its
-    // bottom edge plus its height.
-    context.setTransform(PX_PER_PT * scale, 0, 0, PX_PER_PT * scale, 0, 0);
-    const down = (value: number): number => heightPt - value;
+    // One point becomes PX_PER_PT device pixels, and the font is sized in those
+    // same device pixels. Scaling a context instead would stretch the glyphs
+    // past the width the layout measured them at.
+    const k = PX_PER_PT * scale;
+    context.setTransform(1, 0, 0, 1, 0, 0);
     context.fillStyle = PAPER;
-    context.fillRect(0, 0, widthPt, heightPt);
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    const down = (value: number): number => (heightPt - value) * k;
 
     for (const op of ops) {
         switch (op.kind) {
             case "text": {
                 context.fillStyle = grayCss(op.gray);
-                context.font = `${op.font.italic ? "italic " : ""}${op.font.bold ? "bold " : ""}${op.size}pt ${fontStack(op.font)}`;
-                context.fillText(op.text, op.x, down(op.y));
+                const style = `${op.font.italic ? "italic " : ""}${op.font.bold ? "bold " : ""}`;
+                context.font = `${style}${(op.size * k).toFixed(2)}px ${fontStack(op.font)}`;
+                context.fillText(op.text, op.x * k, down(op.y));
                 break;
             }
             case "rect": {
                 context.fillStyle = grayCss(op.gray);
-                context.fillRect(op.x, down(op.y + op.h), op.w, op.h);
+                context.fillRect(op.x * k, down(op.y + op.h), op.w * k, op.h * k);
                 break;
             }
             case "line": {
                 context.strokeStyle = grayCss(op.gray);
-                context.lineWidth = op.width;
+                context.lineWidth = op.width * k;
                 context.beginPath();
-                context.moveTo(op.x1, down(op.y1));
-                context.lineTo(op.x2, down(op.y2));
+                context.moveTo(op.x1 * k, down(op.y1));
+                context.lineTo(op.x2 * k, down(op.y2));
                 context.stroke();
                 break;
             }
@@ -398,7 +392,7 @@ function paintPage(
                 const src = layout.images[op.index]?.src ?? "";
                 const bitmap = decoded.get(src);
                 if (bitmap !== undefined && bitmap !== null) {
-                    context.drawImage(bitmap, op.x, down(op.y + op.h), op.w, op.h);
+                    context.drawImage(bitmap, op.x * k, down(op.y + op.h), op.w * k, op.h * k);
                 }
                 break;
             }
