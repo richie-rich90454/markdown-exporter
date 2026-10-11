@@ -43,6 +43,63 @@ test("paints the document onto the page canvas", async ({ page }) => {
     expect(await bandInk(page, 3)).toBeGreaterThan(0);
 });
 
+// Bounding box of the ink on the page canvas, in device pixels. Text drawn at
+// the wrong scale — a font sized in points inside a scaled context, for
+// instance — runs past the right margin and shows up here.
+async function inkBox(page: Page): Promise<{ left: number; right: number; top: number } | null> {
+    return page.evaluate(() => {
+        const canvas = document.querySelector<HTMLCanvasElement>(".page-canvas");
+        const context = canvas?.getContext("2d") ?? null;
+        if (canvas === undefined || canvas === null || context === null) {
+            return null;
+        }
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+        let left = canvas.width;
+        let right = -1;
+        let top = canvas.height;
+        for (let y = 0; y < canvas.height; y += 1) {
+            for (let x = 0; x < canvas.width; x += 1) {
+                if ((pixels[(y * canvas.width + x) * 4] ?? 255) < 200) {
+                    left = Math.min(left, x);
+                    right = Math.max(right, x);
+                    top = Math.min(top, y);
+                }
+            }
+        }
+        return { left, right, top };
+    });
+}
+
+test("keeps the painted text inside the margins", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto("/");
+    await page
+        .getByLabel("Markdown editor")
+        .fill(
+            [
+                "A long paragraph that wraps onto several lines, written so that the layout engine has",
+                "to break it at the right margin and the canvas has to draw every fragment exactly where",
+                "the engine put it, no wider and no narrower, or the fragments start to overlap.",
+                "",
+                "| Command | Purpose |",
+                "| --- | --- |",
+                "| npm install | Installs the frontend workspace and the repository tooling. |"
+            ].join("\n")
+        );
+    await expect(page.locator(".page-canvas")).toHaveCount(1);
+    await page.waitForTimeout(700);
+
+    const box = await inkBox(page);
+    expect(box).not.toBeNull();
+    if (box === null) {
+        return;
+    }
+    // A4 at 20mm margins: 56.7pt either side, which is 75.6 device pixels.
+    expect(box.left).toBeGreaterThanOrEqual(60);
+    expect(box.right).toBeLessThanOrEqual(795 - 60);
+    expect(box.top).toBeLessThan(200);
+});
+
 test("keeps a table and a code block on the painted page", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.goto("/");
