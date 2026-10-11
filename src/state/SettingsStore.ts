@@ -1,36 +1,14 @@
 import { createSignal, type Accessor, type Setter } from "solid-js";
 
-export type PageSizeId = "a4" | "letter" | "legal";
-export type FontFamilyId = "serif" | "sans" | "mono";
+import {
+    FONT_OPTIONS,
+    MARGIN_OPTIONS,
+    PAGE_SIZES,
+    type PageSetup,
+    type ThemeId
+} from "../domain/PageSetup";
 
-export interface PageSettings {
-    readonly pageSize: PageSizeId;
-    readonly marginMm: number;
-    readonly fontFamily: FontFamilyId;
-    readonly fontSizePt: number;
-    readonly lineHeight: number;
-}
-
-export const PAGE_SIZES: Readonly<
-    Record<
-        PageSizeId,
-        { readonly label: string; readonly widthMm: number; readonly heightMm: number }
-    >
-> = {
-    a4: { label: "A4", widthMm: 210, heightMm: 297 },
-    letter: { label: "Letter", widthMm: 215.9, heightMm: 279.4 },
-    legal: { label: "Legal", widthMm: 215.9, heightMm: 355.6 }
-};
-
-export const MARGIN_OPTIONS: readonly number[] = [10, 20, 30];
-
-export const FONT_OPTIONS: Readonly<Record<FontFamilyId, string>> = {
-    serif: "Georgia",
-    sans: "System sans",
-    mono: "System mono"
-};
-
-const DEFAULT_SETTINGS: PageSettings = {
+const DEFAULT_SETUP: PageSetup = {
     pageSize: "a4",
     marginMm: 20,
     fontFamily: "serif",
@@ -38,18 +16,34 @@ const DEFAULT_SETTINGS: PageSettings = {
     lineHeight: 1.6
 };
 
-export class SettingsStore {
-    readonly current: Accessor<PageSettings>;
+function preferredTheme(): ThemeId {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
 
-    private readonly patchSettings: Setter<PageSettings>;
+export class SettingsStore {
+    readonly current: Accessor<PageSetup>;
+    readonly theme: Accessor<ThemeId>;
+
+    private readonly patchSetup: Setter<PageSetup>;
+    private readonly setTheme: Setter<ThemeId>;
 
     constructor() {
-        const [current, patchSettings] = createSignal(DEFAULT_SETTINGS);
+        const [current, patchSetup] = createSignal(DEFAULT_SETUP);
+        const [theme, setTheme] = createSignal(preferredTheme());
         this.current = current;
-        this.patchSettings = patchSettings;
+        this.patchSetup = patchSetup;
+        this.theme = theme;
+        this.setTheme = setTheme;
     }
 
-    patch(partial: Partial<PageSettings>): void {
-        this.patchSettings((previous) => ({ ...previous, ...partial }));
+    patch(partial: Partial<PageSetup>): void {
+        this.patchSetup((previous) => ({ ...previous, ...partial }));
+    }
+
+    toggleTheme(): void {
+        this.setTheme((current) => (current === "dark" ? "light" : "dark"));
     }
 }
+
+export { FONT_OPTIONS, MARGIN_OPTIONS, PAGE_SIZES };
+export type { PageSetup, ThemeId };
