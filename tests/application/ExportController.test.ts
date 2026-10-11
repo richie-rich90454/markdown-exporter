@@ -3,17 +3,27 @@ import { describe, expect, it } from "vitest";
 import { DefaultExporterRegistry } from "../../src/adapter/registry/DefaultExporterRegistry";
 import { ExportController } from "../../src/application/ExportController";
 import { ExportFormat } from "../../src/domain/ExportFormat";
+import type { PageSetup } from "../../src/domain/PageSetup";
 import type { ExportRequest } from "../../src/domain/ExportRequest";
+import type { ExportResult } from "../../src/domain/ExportResult";
 import { ExportResults } from "../../src/domain/ExportResult";
 import { RenderedDocument } from "../../src/domain/RenderedDocument";
 import type { DocumentExporter } from "../../src/port/DocumentExporter";
 import type { ExporterRegistry } from "../../src/port/ExporterRegistry";
 
+const SETUP: PageSetup = {
+    pageSize: "a4",
+    marginMm: 20,
+    fontFamily: "serif",
+    fontSizePt: 11,
+    lineHeight: 1.6
+};
+
 class ThrowingExporter implements DocumentExporter {
     readonly supportedFormat = ExportFormat.HTML;
 
-    export(): ReturnType<DocumentExporter["export"]> {
-        throw new Error("disk full");
+    export(): Promise<ExportResult> {
+        return Promise.reject(new Error("disk full"));
     }
 }
 
@@ -22,12 +32,13 @@ function rendered(title = "Doc"): RenderedDocument {
 }
 
 describe("ExportController", () => {
-    it("reports failure for an unknown format", () => {
+    it("reports failure for an unknown format", async () => {
         const controller = new ExportController(new DefaultExporterRegistry());
-        const result = controller.export(
+        const result = await controller.export(
             ExportFormat.PDF,
             rendered(),
-            document.createDocumentFragment()
+            document.createDocumentFragment(),
+            SETUP
         );
 
         expect(result).toEqual({
@@ -45,17 +56,18 @@ describe("ExportController", () => {
         expect(controller.availableFormats()).toEqual([ExportFormat.HTML]);
     });
 
-    it("turns a thrown exporter error into a failure result", () => {
+    it("turns a rejected exporter into a failure result", async () => {
         const registry: ExporterRegistry = {
             register: () => undefined,
             lookup: (format) => (format === ExportFormat.HTML ? new ThrowingExporter() : undefined),
             listAvailableFormats: () => [ExportFormat.HTML]
         };
         const controller = new ExportController(registry);
-        const result = controller.export(
+        const result = await controller.export(
             ExportFormat.HTML,
             rendered(),
-            document.createDocumentFragment()
+            document.createDocumentFragment(),
+            SETUP
         );
 
         expect(result).toEqual({
@@ -65,7 +77,7 @@ describe("ExportController", () => {
         });
     });
 
-    it("passes the rendered document through to the exporter", () => {
+    it("passes the rendered document and page setup to the exporter", async () => {
         const requests: ExportRequest[] = [];
         const registry: ExporterRegistry = {
             register: () => undefined,
@@ -75,7 +87,7 @@ describe("ExportController", () => {
                           supportedFormat: ExportFormat.PDF,
                           export: (payload) => {
                               requests.push(payload);
-                              return ExportResults.success(ExportFormat.PDF);
+                              return Promise.resolve(ExportResults.success(ExportFormat.PDF));
                           }
                       }
                     : undefined,
@@ -83,9 +95,10 @@ describe("ExportController", () => {
         };
         const controller = new ExportController(registry);
         const document = rendered("Report");
-        const result = controller.export(ExportFormat.PDF, document, document.content);
+        const result = await controller.export(ExportFormat.PDF, document, document.content, SETUP);
 
         expect(result).toEqual({ kind: "success", format: ExportFormat.PDF });
         expect(requests[0]?.title).toBe("Report");
+        expect(requests[0]?.pageSetup).toBe(SETUP);
     });
 });
