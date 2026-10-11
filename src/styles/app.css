@@ -308,6 +308,9 @@ textarea {
 .preview {
     display: flex;
     flex-direction: column;
+    /* The height is the scaled stack, and a flex item would otherwise be
+       shrunk back to the pane's height and never scroll. */
+    flex: 0 0 auto;
     min-height: 100%;
     /* The zoomer is scaled with a transform, which leaves its layout box at the
        unscaled size. Hiding the overflow here keeps that from becoming a
