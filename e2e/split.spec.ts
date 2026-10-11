@@ -12,20 +12,18 @@ test("oversized blocks split across pages and survive editing", async ({ page })
     await editor.fill(`Intro paragraph.\n\n${quote}\n\nAfter the quote.`);
     await expect(page.locator(".preview__flow blockquote p")).toHaveCount(80);
 
-    // The blockquote is taller than one page, so it is broken into several
-    // page-sized pieces instead of being clipped at the page edge.
-    await expect(page.locator(".preview__flow blockquote").first()).toBeVisible();
-    expect(await page.locator(".preview__flow blockquote").count()).toBeGreaterThan(1);
-    await expect(page.locator(".page-frame")).not.toHaveCount(1);
+    // The blockquote is taller than one page, so it flows onto several pages
+    // instead of being clipped at the page edge.
+    await expect.poll(async () => page.locator(".page-frame").count()).toBeGreaterThan(1);
+    await expect(page.locator(".page-canvas").last()).toBeVisible();
 
+    // Editing keeps the whole quote mounted: the pagination is derived from the
+    // rendered nodes, never by moving them apart.
     await editor.click();
     await editor.press("End");
     await editor.pressSequentially("\n\nTyped after the split.");
     await expect(page.locator(".preview__flow blockquote p")).toHaveCount(80);
-    await expect(page.locator(".preview__flow", { hasText: "Typed after the split." })).toHaveCount(
-        1
-    );
-    expect(await page.locator(".preview__flow blockquote").count()).toBeGreaterThan(1);
+    await expect(page.locator(".preview__flow")).toContainText("Typed after the split.");
     await expect(page.locator(".preview__flow blockquote p").last()).toHaveText(
         "Quote line 80 carries the tall block."
     );
