@@ -26,26 +26,14 @@ export function StatusBar(props: { context: ApplicationContext }) {
                     <span class="statusbar__label">Render</span>
                     <span class="statusbar__value">{store.renderDurationMs()} ms</span>
                 </span>
-                <ShowStatus status={exportStore.lastStatus()} />
-            </div>
-            <div class="statusbar__group">
-                <span class="statusbar__item">
-                    <span class="statusbar__dot" aria-hidden="true" />
-                    Local only
-                </span>
+                <Show when={exportStore.lastStatus().length > 0}>
+                    <span class="statusbar__item">
+                        <span class="statusbar__status" role="status">
+                            {exportStore.lastStatus()}
+                        </span>
+                    </span>
+                </Show>
             </div>
         </footer>
-    );
-}
-
-function ShowStatus(props: { status: string }) {
-    return (
-        <Show when={props.status.length > 0}>
-            <span class="statusbar__item">
-                <span class="statusbar__status" role="status">
-                    {props.status}
-                </span>
-            </span>
-        </Show>
     );
 }
