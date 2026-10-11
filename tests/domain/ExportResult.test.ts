@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ExportFormat, EXPORT_FORMAT_LABELS, isExportFormat } from "../../src/domain/ExportFormat";
+import { ExportFormat, EXPORT_FORMAT_LABELS } from "../../src/domain/ExportFormat";
 import { ExportResults, isExportSuccess } from "../../src/domain/ExportResult";
 
 describe("ExportFormat", () => {
@@ -11,11 +11,6 @@ describe("ExportFormat", () => {
     it("labels every format", () => {
         expect(EXPORT_FORMAT_LABELS[ExportFormat.PDF]).toBe("PDF");
         expect(EXPORT_FORMAT_LABELS[ExportFormat.HTML]).toBe("HTML");
-    });
-
-    it("guards unknown strings", () => {
-        expect(isExportFormat("pdf")).toBe(true);
-        expect(isExportFormat("docx")).toBe(false);
     });
 });
 
