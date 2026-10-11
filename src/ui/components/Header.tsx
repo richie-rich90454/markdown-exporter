@@ -27,6 +27,13 @@ export function Header(props: HeaderProps) {
         caret?.focus();
     }
 
+    function openMenu(): void {
+        setMenuOpen(true);
+        queueMicrotask(() => {
+            menu?.querySelector<HTMLButtonElement>(".export__item")?.focus();
+        });
+    }
+
     function onMenuKeyDown(event: KeyboardEvent): void {
         if (event.key === "Escape") {
             event.preventDefault();
@@ -43,21 +50,6 @@ export function Header(props: HeaderProps) {
             const target = items[(next + items.length) % items.length];
             target?.focus();
         }
-    }
-
-    function openMenu(): void {
-        setMenuOpen(true);
-        queueMicrotask(() => {
-            menu?.querySelector<HTMLButtonElement>(".export__item")?.focus();
-        });
-    }
-
-    function setCaret(element: HTMLButtonElement | undefined): void {
-        caret = element;
-    }
-
-    function setMenu(element: HTMLDivElement | undefined): void {
-        menu = element;
     }
 
     return (
@@ -87,6 +79,7 @@ export function Header(props: HeaderProps) {
                 >
                     Page setup
                 </button>
+                <ThemeToggle context={props.context} />
                 <div class="export">
                     <button
                         type="button"
@@ -102,7 +95,9 @@ export function Header(props: HeaderProps) {
                         aria-haspopup="menu"
                         aria-expanded={menuOpen()}
                         aria-label="Choose export format"
-                        ref={setCaret}
+                        ref={(element) => {
+                            caret = element;
+                        }}
                         onClick={() => (menuOpen() ? closeMenu() : openMenu())}
                     >
                         <svg width="10" height="6" viewBox="0 0 10 6" aria-hidden="true">
@@ -119,8 +114,10 @@ export function Header(props: HeaderProps) {
                             class="export__menu"
                             role="menu"
                             aria-label="Export format"
-                            ref={setMenu}
-                            onKeyDown={onMenuKeyDown}
+                            ref={(element) => {
+                                menu = element;
+                            }}
+                            onKeyDown={(event) => onMenuKeyDown(event)}
                         >
                             <For each={formats}>
                                 {(format) => (
@@ -145,5 +142,22 @@ export function Header(props: HeaderProps) {
                 </div>
             </div>
         </header>
+    );
+}
+
+function ThemeToggle(props: { context: ApplicationContext }) {
+    const dark = () => props.context.settingsStore.theme() === "dark";
+
+    return (
+        <button
+            type="button"
+            class="button button--ghost"
+            aria-pressed={dark()}
+            aria-label={dark() ? "Switch to light theme" : "Switch to dark theme"}
+            title={dark() ? "Switch to light theme" : "Switch to dark theme"}
+            onClick={() => props.context.settingsStore.toggleTheme()}
+        >
+            {dark() ? "Light" : "Dark"}
+        </button>
     );
 }
