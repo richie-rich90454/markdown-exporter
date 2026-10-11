@@ -1,15 +1,10 @@
-/**
- * Trailing-edge debouncer.
- *
- * The scheduled callback must capture no document-sized payload. It reads
- * whatever it needs from the store when it fires, so a stale copy of the
- * source is never held alive while the user keeps typing.
- */
 export class Debouncer {
     private timer: ReturnType<typeof setTimeout> | undefined;
 
     constructor(
         private readonly delayMs: number,
+        // The callback reads what it needs from the store when it fires, so a
+        // scheduled render never pins a copy of the source it started with.
         private readonly callback: () => void
     ) {}
 
