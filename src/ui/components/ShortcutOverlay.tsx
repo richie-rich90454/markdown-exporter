@@ -1,4 +1,4 @@
-import { For, onMount } from "solid-js";
+import { For, onCleanup, onMount } from "solid-js";
 
 export interface ShortcutOverlayProps {
     onClose: () => void;
@@ -21,14 +21,15 @@ export function ShortcutOverlay(props: ShortcutOverlayProps) {
 
     onMount(() => {
         panel?.focus();
+        const onKeyDown = (event: KeyboardEvent): void => {
+            if (event.key === "Escape") {
+                event.preventDefault();
+                props.onClose();
+            }
+        };
+        window.addEventListener("keydown", onKeyDown);
+        onCleanup(() => window.removeEventListener("keydown", onKeyDown));
     });
-
-    function onKeyDown(event: KeyboardEvent): void {
-        if (event.key === "Escape") {
-            event.preventDefault();
-            props.onClose();
-        }
-    }
 
     return (
         <div
@@ -48,7 +49,6 @@ export function ShortcutOverlay(props: ShortcutOverlayProps) {
                 ref={(element) => {
                     panel = element;
                 }}
-                onKeyDown={(event) => onKeyDown(event)}
             >
                 <header class="overlay__header">
                     <h2 class="overlay__title" id="shortcuts-title">

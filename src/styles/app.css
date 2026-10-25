@@ -272,6 +272,12 @@ textarea {
     background: var(--canvas);
 }
 
+.editor-loading {
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+}
+
 .pane--editor:focus-within {
     outline: 2px solid var(--focus);
     outline-offset: -2px;
@@ -281,6 +287,302 @@ textarea {
     position: relative;
     padding: var(--space-6);
     background: var(--surface);
+}
+
+.editor-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    min-height: 30px;
+    margin-bottom: var(--space-4);
+}
+
+.editor-toolbar__files,
+.editor-toolbar__right {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+}
+
+.editor-toolbar__right {
+    flex-shrink: 0;
+    gap: var(--space-2);
+}
+
+.editor-file-action {
+    min-height: 26px;
+    padding: 0 var(--space-2);
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: var(--text-micro);
+    cursor: pointer;
+}
+
+.editor-file-action:hover {
+    border-color: var(--border);
+    background: var(--surface);
+    color: var(--text);
+}
+
+.editor-file-action:focus-visible,
+.file-sidebar__close:focus-visible,
+.file-sidebar__file:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 1px;
+}
+
+.editor-toolbar__filename {
+    overflow: hidden;
+    max-width: 14ch;
+    padding-left: var(--space-2);
+    color: var(--text-tertiary);
+    font-size: var(--text-micro);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.editor-toolbar__label {
+    color: var(--text-tertiary);
+    font-size: var(--text-micro);
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.editor-toolbar__modes {
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+}
+
+.editor-mode {
+    min-height: 24px;
+    padding: 0 var(--space-2);
+    border: 0;
+    border-radius: calc(var(--radius) - 1px);
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: var(--text-micro);
+    cursor: pointer;
+}
+
+.editor-mode[aria-pressed="true"] {
+    background: var(--canvas);
+    color: var(--text);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.editor-mode:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 1px;
+}
+
+.editor-host {
+    flex: 1;
+    min-height: 0;
+}
+
+.editor-workspace {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+}
+
+.file-sidebar {
+    display: flex;
+    flex: 0 0 180px;
+    flex-direction: column;
+    min-height: 0;
+    margin-right: var(--space-4);
+    border-right: 1px solid var(--border);
+}
+
+.file-sidebar__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: 0 var(--space-2) var(--space-2) 0;
+}
+
+.file-sidebar__title {
+    overflow: hidden;
+    color: var(--text-tertiary);
+    font-size: var(--text-micro);
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-sidebar__close {
+    width: 24px;
+    height: 24px;
+    border: 0;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text-tertiary);
+    font-size: 18px;
+    cursor: pointer;
+}
+
+.file-sidebar__list {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 2px;
+    padding-right: var(--space-2);
+    overflow: auto;
+}
+
+.file-sidebar__file {
+    overflow: hidden;
+    width: 100%;
+    padding: 6px var(--space-2);
+    border: 0;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: var(--text-micro);
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.file-sidebar__file:hover,
+.file-sidebar__file.is-current {
+    background: var(--surface);
+    color: var(--text);
+}
+
+.file-sidebar__empty {
+    margin: 0;
+    padding: var(--space-2);
+    color: var(--text-tertiary);
+    font-size: var(--text-micro);
+}
+
+.editor-footer {
+    min-height: 18px;
+    margin-top: var(--space-2);
+    overflow: hidden;
+    color: var(--text-tertiary);
+    font-size: var(--text-micro);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.editor-file-input {
+    display: none;
+}
+
+.cm-editor {
+    flex: 1;
+    min-height: 100%;
+    color: var(--text);
+    background: transparent;
+}
+
+.cm-scroller {
+    overflow: auto;
+}
+
+.cm-content {
+    min-height: 100%;
+    padding: 0;
+    font-family: var(--font-editor);
+    font-size: var(--text-editor);
+    line-height: 1.6;
+    tab-size: 2;
+}
+
+.cm-md-heading {
+    color: var(--text);
+    font-weight: 600;
+}
+
+.cm-md-heading-1 {
+    font-size: 1.8em;
+}
+
+.cm-md-heading-2 {
+    font-size: 1.45em;
+}
+
+.cm-md-heading-3 {
+    font-size: 1.2em;
+}
+
+.cm-md-bold {
+    font-weight: 700;
+}
+
+.cm-md-italic {
+    font-style: italic;
+}
+
+.cm-md-strike {
+    text-decoration: line-through;
+}
+
+.cm-md-highlight {
+    border-radius: 2px;
+    background: color-mix(in srgb, #f2d675 34%, transparent);
+}
+
+.cm-md-link {
+    color: var(--text-secondary);
+    text-decoration: underline;
+    text-decoration-color: var(--border-strong);
+    text-underline-offset: 2px;
+}
+
+.cm-md-inline-code,
+.cm-md-code-block {
+    border-radius: 3px;
+    background: var(--surface);
+    font-family: var(--font-editor);
+}
+
+.cm-math-inline,
+.cm-math-display {
+    display: inline-block;
+    max-width: 100%;
+    vertical-align: middle;
+}
+
+.cm-math-display {
+    padding: 0 0.15em;
+}
+
+.cm-math-error {
+    color: var(--danger);
+}
+
+.cm-editor .katex {
+    font-size: 1em;
+}
+
+.cm-editor .katex-display {
+    margin: 0;
+}
+
+.cm-editor .katex-mathml {
+    position: absolute;
+}
+
+.cm-editor .katex-html {
+    white-space: nowrap;
 }
 
 .editor {
@@ -373,9 +675,7 @@ textarea {
     position: absolute;
     top: 0;
     left: 0;
-    width: 1px;
-    height: 0;
-    overflow: hidden;
+    width: var(--page-width);
     visibility: hidden;
     pointer-events: none;
 }
@@ -397,6 +697,15 @@ textarea {
 
 .page-canvas {
     display: block;
+}
+
+.page-math-overlay {
+    position: absolute;
+    z-index: 1;
+    overflow: visible;
+    color: #000;
+    pointer-events: none;
+    white-space: nowrap;
 }
 
 .page-label {

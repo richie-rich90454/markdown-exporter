@@ -1,10 +1,10 @@
-import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, lazy, onCleanup, onMount, Show, Suspense } from "solid-js";
+import type { EditorView } from "@codemirror/view";
 
 import type { ApplicationContext } from "../ApplicationContext";
 import type { ExportFormat } from "../domain/ExportFormat";
 import type { MarkdownDocument } from "../domain/MarkdownDocument";
 import { Debouncer } from "../util/Debouncer";
-import { EditorPane } from "./components/EditorPane";
 import { Header } from "./components/Header";
 import { PageSetupSheet } from "./components/PageSetupSheet";
 import { PreviewPane } from "./components/PreviewPane";
@@ -16,6 +16,9 @@ const RENDER_DEBOUNCE_MS = 120;
 const ANNOUNCE_IDLE_MS = 1500;
 const SPLIT_MIN = 16;
 const SPLIT_MAX = 84;
+const EditorPane = lazy(() =>
+    import("./components/EditorPane").then(({ EditorPane: component }) => ({ default: component }))
+);
 
 export interface AppProps {
     context: ApplicationContext;
@@ -34,15 +37,15 @@ export function App(props: AppProps) {
     const [shortcutsOpen, setShortcutsOpen] = createSignal(false);
     const [announcement, setAnnouncement] = createSignal("");
 
-    let editorTextarea: HTMLTextAreaElement | undefined;
+    let editorView: EditorView | undefined;
     let previewFlow: HTMLDivElement | undefined;
     let main: HTMLElement | undefined;
     let pendingRevision = -1;
     let announceTimer: ReturnType<typeof setTimeout> | undefined;
     let restoreFocus: HTMLElement | undefined;
 
-    function setEditor(element: HTMLTextAreaElement | undefined): void {
-        editorTextarea = element;
+    function setEditor(view: EditorView | undefined): void {
+        editorView = view;
     }
 
     function setPreviewFlow(element: HTMLDivElement | undefined): void {
@@ -100,7 +103,7 @@ export function App(props: AppProps) {
         window.addEventListener("keydown", onKeyDown);
         onCleanup(() => window.removeEventListener("keydown", onKeyDown));
 
-        editorTextarea?.focus();
+        editorView?.focus();
     });
 
     createEffect(() => {
@@ -251,7 +254,15 @@ export function App(props: AppProps) {
                     main = element;
                 }}
             >
-                <EditorPane context={context} onInput={onSourceChange} textareaRef={setEditor} />
+                <Suspense
+                    fallback={
+                        <section class="pane pane--editor editor-loading" aria-label="Editor pane">
+                            <span>Loading editor…</span>
+                        </section>
+                    }
+                >
+                    <EditorPane context={context} onInput={onSourceChange} editorRef={setEditor} />
+                </Suspense>
                 <SplitDivider
                     split={split()}
                     onSplitChange={(percent) => setSplit(percent)}
@@ -261,7 +272,7 @@ export function App(props: AppProps) {
                 <PreviewPane
                     context={context}
                     flowRef={setPreviewFlow}
-                    onFocusEditor={() => editorTextarea?.focus()}
+                    onFocusEditor={() => editorView?.focus()}
                 />
             </main>
             <StatusBar context={context} />
