@@ -36,6 +36,7 @@ function request(content: HTMLElement): ExportRequest {
 describe("HtmlExporter", () => {
     afterEach(() => {
         vi.unstubAllGlobals();
+        vi.restoreAllMocks();
     });
 
     it("keeps ordinary documents lightweight", async () => {
@@ -61,6 +62,30 @@ describe("HtmlExporter", () => {
         expect(html).toContain(".katex-html");
         expect(html).toContain("data:font/woff2;base64,");
         expect(html).toContain("<math");
+        expect(html).not.toContain("url(fonts/KaTeX_");
+    });
+
+    it("embeds only the KaTeX font families used by rendered math", async () => {
+        vi.spyOn(window, "getComputedStyle").mockImplementation((element) => {
+            const mathItalic = element.classList.contains("mathnormal");
+            return {
+                fontFamily: mathItalic ? "KaTeX_Math" : "KaTeX_Main",
+                fontWeight: "400",
+                fontStyle: mathItalic ? "italic" : "normal"
+            } as CSSStyleDeclaration;
+        });
+        const saver = new MemorySaver();
+        const content = document.createElement("div");
+        content.innerHTML =
+            '<span class="katex"><span class="katex-html"><span class="mathnormal">x</span></span>' +
+            '<span class="katex-mathml"><math><mi>x</mi></math></span></span>';
+
+        await new HtmlExporter(saver).export(request(content));
+        const html = await saver.blob?.text();
+
+        expect(html?.match(/data:font\/woff2;base64,/g)).toHaveLength(2);
+        expect(html).not.toContain("url(fonts/KaTeX_Main-Regular.woff2)");
+        expect(html).not.toContain("url(fonts/KaTeX_Math-Italic.woff2)");
         expect(html).not.toContain("url(fonts/KaTeX_");
     });
 

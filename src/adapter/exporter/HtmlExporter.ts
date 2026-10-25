@@ -49,7 +49,7 @@ export class HtmlExporter implements DocumentExporter {
             contentRoot.querySelector(".katex") !== null;
         const katexStyles = !hasMath
             ? ""
-            : (await import("./KatexAssets")).katexStylesWithEmbeddedFonts();
+            : await (await import("./KatexAssets")).katexStylesWithEmbeddedFonts(contentRoot);
         const styles = `${STYLESHEET}\n${katexStyles}\n.katex-error{color:#b42318}`;
         const html =
             `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n` +

@@ -30,7 +30,7 @@ export class PdfExporter implements DocumentExporter {
         const layout: LaidOut = paginate(parseBlocks(request.content), request.pageSetup, embeds);
         const katexFonts =
             layout.mathFonts.length > 0
-                ? (await import("./KatexPdfFonts")).loadKatexPdfFonts(layout.mathFonts)
+                ? await (await import("./KatexPdfFonts")).loadKatexPdfFonts(layout.mathFonts)
                 : undefined;
         const bytes: Uint8Array = writePdf(
             layout,

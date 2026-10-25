@@ -19,9 +19,11 @@ const SETUP: PageSetup = {
 const FONT_NAME = "KaTeX_Main-Regular.ttf";
 
 describe("KaTeX TrueType PDF fonts", () => {
-    it("maps Unicode characters to KaTeX glyph IDs and reads their metrics", () => {
-        const bytes = loadKatexPdfFonts([FONT_NAME]).get(FONT_NAME);
+    it("loads the requested font and maps Unicode characters to its glyph IDs", async () => {
+        const fonts = await loadKatexPdfFonts([FONT_NAME, FONT_NAME, "unknown.ttf"]);
+        const bytes = fonts.get(FONT_NAME);
         expect(bytes).toBeDefined();
+        expect(fonts.size).toBe(1);
         if (bytes === undefined) return;
 
         const font = parseTrueType(bytes);
@@ -31,7 +33,7 @@ describe("KaTeX TrueType PDF fonts", () => {
         expect(font.advances[font.glyphFor("x".codePointAt(0) ?? 0)]).toBeGreaterThan(0);
     });
 
-    it("embeds fonts, glyph mappings, and ToUnicode text in the PDF", () => {
+    it("embeds fonts, glyph mappings, and ToUnicode text in the PDF", async () => {
         const math: MathLayout = {
             width: 20,
             height: 16,
@@ -50,7 +52,7 @@ describe("KaTeX TrueType PDF fonts", () => {
             fonts: [font(false, false, false, "serif")],
             mathFonts: [FONT_NAME]
         };
-        const fonts = loadKatexPdfFonts([FONT_NAME]);
+        const fonts = await loadKatexPdfFonts([FONT_NAME]);
         const pdf = new TextDecoder("latin1").decode(writePdf(layout, [], "Math", SETUP, fonts));
 
         expect(pdf).toContain("/Subtype /Type0");

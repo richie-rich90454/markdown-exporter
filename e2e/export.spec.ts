@@ -58,6 +58,53 @@ async function exportPdf(page: Page, name = "chemistry-utility.pdf"): Promise<st
     return new TextDecoder("latin1").decode(Buffer.concat(chunks));
 }
 
+test("PDF math downloads only the KaTeX font faces used by the document", async ({ page }) => {
+    const fontChunks = new Set<string>();
+    page.on("request", (request) => {
+        const pathname = new URL(request.url()).pathname;
+        if (/\/assets\/KaTeX_[\w-]+-[\w-]+\.js$/.test(pathname)) fontChunks.add(pathname);
+    });
+
+    await page.goto("/");
+    await page.getByLabel("Markdown editor").fill("$$\\sum_{i=1}^n i^2$$");
+    await expect(page.locator(".preview__flow .katex")).toHaveCount(1);
+
+    const pdf = await exportPdf(page, "document.pdf");
+
+    expect(pdf).toContain("/Subtype /Type0");
+    expect(fontChunks.size).toBeGreaterThan(0);
+    expect(fontChunks.size).toBeLessThan(8);
+});
+
+test("offline HTML math embeds only the font faces it uses", async ({ page }) => {
+    await page.goto("/");
+    await page.getByLabel("Markdown editor").fill("# Math\n\n\\(x^2 + 1\\)");
+    await expect(page.locator(".preview__flow .katex")).toHaveCount(1);
+
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Choose export format" }).click();
+    await page.getByRole("menuitem", { name: "HTML" }).click();
+    const file = await download;
+    const stream = await file.createReadStream();
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) chunks.push(chunk as Buffer);
+    const html = Buffer.concat(chunks).toString("utf8");
+    const fontCount = [...html.matchAll(/data:font\/woff2;base64,/g)].length;
+
+    expect(fontCount).toBeGreaterThan(0);
+    expect(fontCount).toBeLessThan(20);
+    expect(html).not.toContain("url(fonts/KaTeX_");
+
+    const offlinePage = await page.context().newPage();
+    await offlinePage.setContent(html);
+    await offlinePage.evaluate(async () => {
+        await document.fonts.load("16px KaTeX_Main");
+    });
+    await expect(offlinePage.locator(".katex")).toHaveCount(1);
+    expect(await offlinePage.evaluate(() => document.fonts.check("16px KaTeX_Main"))).toBe(true);
+    await offlinePage.close();
+});
+
 function pagesOf(pdf: string): string[] {
     return [...pdf.matchAll(/stream\n([\s\S]*?)\nendstream/g)]
         .map((match) => match[1] ?? "")
