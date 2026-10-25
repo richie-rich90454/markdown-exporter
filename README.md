@@ -1,25 +1,29 @@
 # Markdown Exporter
 
-Converts Markdown to PDF in the browser.
+Edits Markdown locally and exports paginated PDF or standalone HTML from the browser.
 
 ## Features
 
-- Live preview with visible page boundaries
+- CodeMirror source mode and Typora-style inline editing
+- Paginated preview shared with direct PDF export
 - Page size and margin options
-- Syntax highlighting, tables, and task lists
+- CommonMark, GFM, Typora extensions, KaTeX math, and local Mermaid diagrams
+- Local file and folder workflows with on-device draft recovery
 - Keyboard accessible, works offline
-- No upload, no account, no storage
 
 ## How to use it
 
 1. Open the page.
-2. Type or paste Markdown into the editor.
-3. Adjust page setup if the document needs a different page size or margin.
-4. Click Export and pick a format; the file is written in the browser.
+2. Type or paste Markdown into the editor, or open a local file or folder.
+3. Switch between Source and Inline editing while keeping the same document and undo history.
+4. Adjust page setup if the document needs a different page size or margin.
+5. Click Export and choose PDF or standalone HTML.
 
 ## Privacy
 
-Your Markdown never leaves your browser. There is no account, no upload and no storage, and the page works offline.
+Your Markdown and recovery draft stay on your device. The app does not upload documents or require an account. Browser file handles are used only after you choose a file or folder; browsers without those APIs use file-picker and download fallbacks. The page works offline after it has been loaded.
+
+See the [Markdown conformance snapshot](docs/markdown-conformance.md) for supported syntax and known limitations.
 
 ## License
 

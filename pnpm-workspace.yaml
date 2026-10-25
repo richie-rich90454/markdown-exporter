@@ -1,2 +1,5 @@
 minimumReleaseAgeExclude:
     - "@types/node@26.6.5"
+overrides:
+    "micromark-extension-math>katex": 0.19.1
+    "rehype-katex>katex": 0.19.1

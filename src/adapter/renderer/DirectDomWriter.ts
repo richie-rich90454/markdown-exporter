@@ -1,6 +1,73 @@
 import type { Element, Root, RootContent } from "hast";
 import type { DomRenderer } from "../../port/DomRenderer";
 
+const MATHML_NAMESPACE = "http://www.w3.org/1998/Math/MathML";
+const MATHML_TAGS = new Set([
+    "math",
+    "semantics",
+    "annotation",
+    "mrow",
+    "mi",
+    "mn",
+    "mo",
+    "mtext",
+    "mspace",
+    "mstyle",
+    "msup",
+    "msub",
+    "msubsup",
+    "mover",
+    "munder",
+    "munderover",
+    "mfrac",
+    "msqrt",
+    "mroot",
+    "mtable",
+    "mtr",
+    "mtd",
+    "mpadded",
+    "menclose",
+    "mmultiscripts",
+    "mprescripts",
+    "none"
+]);
+// KaTeX emits layout-critical style strings after rehype-sanitize has removed
+// user-authored HTML styles. Preserve its bounded layout/color vocabulary only.
+const KATEX_STYLE_PROPERTIES = new Set([
+    "background-color",
+    "border",
+    "border-bottom-width",
+    "border-color",
+    "border-left-width",
+    "border-right-width",
+    "border-style",
+    "border-top-width",
+    "border-width",
+    "bottom",
+    "color",
+    "height",
+    "left",
+    "margin-left",
+    "margin-right",
+    "margin-top",
+    "margin-bottom",
+    "max-height",
+    "max-width",
+    "min-width",
+    "min-height",
+    "padding-left",
+    "padding-right",
+    "padding-top",
+    "padding-bottom",
+    "top",
+    "right",
+    "vertical-align",
+    "width"
+]);
+const CSS_LENGTH = /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:em|ex|px|pt|pc|mm|cm|in|rem|%)?$/i;
+const CSS_COLOR = /^(?:#[\da-f]{3,8}|[a-z]+|rgba?\([\d.%\s,]+\)|hsla?\([\d.%\s,]+\))$/i;
+const CSS_BORDER_STYLE = /^(?:none|hidden|dotted|dashed|solid|double|groove|ridge|inset|outset)$/i;
+
 // Walks hast into DOM nodes instead of building an HTML string for innerHTML,
 // which would hold the document three times at once.
 export class DirectDomWriter implements DomRenderer {
@@ -35,7 +102,9 @@ export class DirectDomWriter implements DomRenderer {
     }
 
     private createElement(node: Element): HTMLElement {
-        const element = document.createElement(node.tagName);
+        const element = MATHML_TAGS.has(node.tagName)
+            ? (document.createElementNS(MATHML_NAMESPACE, node.tagName) as unknown as HTMLElement)
+            : document.createElement(node.tagName);
         const properties = node.properties;
         if (properties !== undefined) {
             for (const [name, value] of Object.entries(properties)) {
@@ -74,14 +143,58 @@ export class DirectDomWriter implements DomRenderer {
     }
 
     private applyStyle(element: HTMLElement, value: unknown): void {
-        if (typeof value !== "object" || value === null || Array.isArray(value)) {
-            return;
-        }
-        for (const [property, entry] of Object.entries(value)) {
-            if (typeof entry === "string" || typeof entry === "number") {
-                element.style.setProperty(property, String(entry));
+        const declarations: [string, string][] =
+            typeof value === "string"
+                ? value.split(";").flatMap((declaration): [string, string][] => {
+                      const colon = declaration.indexOf(":");
+                      return colon < 0
+                          ? []
+                          : [
+                                [
+                                    declaration.slice(0, colon).trim(),
+                                    declaration.slice(colon + 1).trim()
+                                ]
+                            ];
+                  })
+                : typeof value === "object" && value !== null && !Array.isArray(value)
+                  ? Object.entries(value).map(([property, entry]): [string, string] => [
+                        property.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`),
+                        String(entry)
+                    ])
+                  : [];
+
+        for (const [property, entry] of declarations) {
+            if (
+                KATEX_STYLE_PROPERTIES.has(property.toLowerCase()) &&
+                DirectDomWriter.isSafeStyleValue(property.toLowerCase(), entry)
+            ) {
+                element.style.setProperty(property.toLowerCase(), entry);
             }
         }
+    }
+
+    private static isSafeStyleValue(property: string, value: string): boolean {
+        if (
+            property === "color" ||
+            property === "background-color" ||
+            property === "border-color"
+        ) {
+            return CSS_COLOR.test(value);
+        }
+        if (property === "border-style") {
+            return value.split(/\s+/).every((style) => CSS_BORDER_STYLE.test(style));
+        }
+        if (property === "border") {
+            const parts = value.split(/\s+/);
+            return (
+                parts.length <= 3 &&
+                parts.every(
+                    (part) =>
+                        CSS_LENGTH.test(part) || CSS_COLOR.test(part) || CSS_BORDER_STYLE.test(part)
+                )
+            );
+        }
+        return CSS_LENGTH.test(value);
     }
 
     private static readonly NAMED_ATTRIBUTES: Readonly<Record<string, string>> = {

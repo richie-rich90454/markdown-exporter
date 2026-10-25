@@ -66,4 +66,28 @@ describe("DirectDomWriter", () => {
         expect(fragment.querySelector("div")?.innerHTML).toBe("&lt;img src=x onerror=alert(1)&gt;");
         expect(fragment.querySelector("img")).toBeNull();
     });
+
+    it("keeps safe KaTeX layout styles from CSS strings and rejects unsafe declarations", () => {
+        const fragment = new DirectDomWriter().renderFragment({
+            type: "root",
+            children: [
+                {
+                    type: "element",
+                    tagName: "span",
+                    properties: {
+                        style: "height:0.4445em;top:-1.2777em;color:red;background-color:yellow;border:0.04em solid red;background-image:url(javascript:alert(1))"
+                    },
+                    children: []
+                }
+            ]
+        });
+
+        const element = fragment.querySelector("span");
+        expect(element?.style.height).toBe("0.4445em");
+        expect(element?.style.top).toBe("-1.2777em");
+        expect(element?.style.color).toBe("red");
+        expect(element?.style.backgroundColor).toBe("yellow");
+        expect(element?.style.border).toBe("0.04em solid red");
+        expect(element?.style.backgroundImage).toBe("");
+    });
 });

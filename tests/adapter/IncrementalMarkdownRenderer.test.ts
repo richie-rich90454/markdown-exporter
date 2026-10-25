@@ -87,4 +87,75 @@ describe("IncrementalMarkdownRenderer", () => {
         expect(textOf(rendered)).toContain("Section");
         expect(textOf(rendered)).toContain("Body of section.");
     });
+
+    it("re-renders TOCs when appended headings change their document-wide links", async () => {
+        const renderer = createRenderer();
+        const first = MarkdownDocument.initial("[TOC]\n\n# First\n");
+        const firstRendered = await renderer.render(first);
+        const next = first.withSource(`${first.source}\n\n# Second\n`);
+
+        const rendered = await renderer.renderIncremental(firstRendered, next);
+
+        expect(rendered.prefix).toHaveLength(0);
+        expect(
+            [...rendered.content.querySelectorAll(".markdown-toc a")].map((link) =>
+                link.getAttribute("href")
+            )
+        ).toEqual(["#user-content-first", "#user-content-second"]);
+    });
+
+    it("re-renders equation references when the labeled equation is in the prefix", async () => {
+        const renderer = createRenderer();
+        const first = MarkdownDocument.initial("\\[x = 1 \\label{eq:first}\\]\n");
+        const firstRendered = await renderer.render(first);
+        const next = first.withSource(`${first.source}\n\nSee \\eqref{eq:first}.\n`);
+
+        const rendered = await renderer.renderIncremental(firstRendered, next);
+
+        expect(rendered.prefix).toHaveLength(0);
+        expect(rendered.content.querySelector("p")?.textContent).toContain("(1)");
+    });
+
+    it("re-renders footnotes so appended references keep document-wide numbering", async () => {
+        const renderer = createRenderer();
+        const first = MarkdownDocument.initial("First[^one].\n\n[^one]: First note.\n");
+        const firstRendered = await renderer.render(first);
+        const next = first.withSource(`${first.source}\n\nSecond[^two].\n\n[^two]: Second note.\n`);
+
+        const rendered = await renderer.renderIncremental(firstRendered, next);
+
+        expect(rendered.prefix).toHaveLength(0);
+        expect(rendered.content.querySelectorAll("sup a[href^='#user-content-fn']")).toHaveLength(
+            2
+        );
+        expect(rendered.content.querySelectorAll("li[id^='user-content-fn']")).toHaveLength(2);
+    });
+
+    it("re-renders reference links when the definition is appended after its use", async () => {
+        const renderer = createRenderer();
+        const first = MarkdownDocument.initial("[guide][later]\n");
+        const firstRendered = await renderer.render(first);
+        const next = first.withSource(first.source + "\n[later]: https://example.com/guide\n");
+
+        const rendered = await renderer.renderIncremental(firstRendered, next);
+
+        expect(rendered.prefix).toHaveLength(0);
+        expect(rendered.content.querySelector("a")?.getAttribute("href")).toBe(
+            "https://example.com/guide"
+        );
+    });
+
+    it("re-renders reference links when the use is appended after its definition", async () => {
+        const renderer = createRenderer();
+        const first = MarkdownDocument.initial("[later]: https://example.com/guide\n\n");
+        const firstRendered = await renderer.render(first);
+        const next = first.withSource(first.source + "[Guide][later]\n");
+
+        const rendered = await renderer.renderIncremental(firstRendered, next);
+
+        expect(rendered.prefix).toHaveLength(0);
+        expect(rendered.content.querySelector("a")?.getAttribute("href")).toBe(
+            "https://example.com/guide"
+        );
+    });
 });

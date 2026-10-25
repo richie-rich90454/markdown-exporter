@@ -6,6 +6,10 @@ import { titleOfSource, UnifiedMarkdownRenderer } from "./UnifiedMarkdownRendere
 
 const LIST_ITEM = /^\s*(?:[-*+]|\d{1,9}[.)])\s/;
 const BLOCK_QUOTE = /^\s*>/;
+// These constructs depend on information elsewhere in the document. Re-parsing
+// only an appended tail would leave generated references and navigation stale.
+const DOCUMENT_WIDE_MARKDOWN =
+    /\[TOC\]|\\(?:label|ref|eqref)\s*\{|\[\^[^\]]+\]|(?<!\\)\[[^\]\n]+\](?:\[[^\]\n]*\])?(?!\s*\()/im;
 
 export class IncrementalMarkdownRenderer extends UnifiedMarkdownRenderer {
     private frozenSource = "";
@@ -25,6 +29,7 @@ export class IncrementalMarkdownRenderer extends UnifiedMarkdownRenderer {
         if (
             !previous.isEmpty &&
             this.frozenNodes.length > 0 &&
+            !DOCUMENT_WIDE_MARKDOWN.test(next.source) &&
             next.source.startsWith(this.frozenSource) &&
             next.source.length > this.frozenSource.length
         ) {
@@ -53,7 +58,7 @@ export class IncrementalMarkdownRenderer extends UnifiedMarkdownRenderer {
             hast.children.length
         );
 
-        const tailNodes = [...this.domWriter.renderFragment(hast).childNodes];
+        const tailNodes = [...(await this.renderContent(hast)).childNodes];
         const prefix = [...this.frozenNodes, ...tailNodes.slice(0, frozenCount)];
         const content = document.createDocumentFragment();
         for (const node of tailNodes.slice(frozenCount)) {
