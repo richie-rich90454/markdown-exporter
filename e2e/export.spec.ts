@@ -64,6 +64,57 @@ function pagesOf(pdf: string): string[] {
         .filter((body) => body.includes("Tj") || body.includes("Do"));
 }
 
+test("renders the documented Mermaid families into preview and PDF", async ({ page }) => {
+    test.setTimeout(120_000);
+    const examples = [
+        "sequenceDiagram\nAlice->>Bob: Hello\nBob-->>Alice: Hi",
+        "flowchart TD\nA[Start] --> B[Finish]",
+        "gantt\ntitle Release\ndateFormat YYYY-MM-DD\nsection Build\nMake: a1, 2026-01-01, 2d",
+        "classDiagram\nclass User {\n+String name\n}",
+        "stateDiagram-v2\n[*] --> Ready\nReady --> Done",
+        'pie title Visits\n"Docs" : 60\n"Editor" : 40',
+        "requirementDiagram\nrequirement req1 {\nid: 1\ntext: The system works\nrisk: low\nverifymethod: test\n}",
+        "gitGraph\ncommit\nbranch feature\ncheckout feature\ncommit\ncheckout main\nmerge feature",
+        'C4Context\nPerson(user, "User")\nSystem(app, "Editor")\nRel(user, app, "Uses")',
+        "mindmap\nroot((Notes))\n  Ideas\n    Math",
+        "timeline\ntitle Milestones\nsection 2026\nStart",
+        'quadrantChart\ntitle Priorities\nx-axis Low --> High\ny-axis Low --> High\nquadrant-1 "Do now"\nquadrant-2 "Plan"\nquadrant-3 "Later"\nquadrant-4 "Delegate"\nTask A: [0.7, 0.7]',
+        "sankey-beta\nA,B,10\nB,C,5",
+        "zenuml\ntitle Demo\nAlice->John: Hello John, how are you?\nJohn->Alice: Great!",
+        "xychart-beta\nx-axis [A, B, C]\ny-axis 0 --> 10\nline [1, 5, 3]"
+    ];
+    const source = examples
+        .map((example, index) => `## Diagram ${index + 1}\n\n\`\`\`mermaid\n${example}\n\`\`\``)
+        .join("\n\n");
+
+    await page.goto("/");
+    await page.getByLabel("Markdown editor").fill(source);
+    await expect
+        .poll(
+            async () =>
+                (await page.locator(".preview__flow svg.markdown-diagram").count()) +
+                (await page.locator(".preview__flow .diagram-error").count()),
+            { timeout: 90_000 }
+        )
+        .toBe(examples.length);
+    const errors = await page
+        .locator(".preview__flow pre.diagram-error")
+        .evaluateAll((blocks) =>
+            blocks.map(
+                (block) =>
+                    `${block.querySelector("code")?.textContent ?? ""}\n${block.getAttribute("title") ?? ""}`
+            )
+        );
+    expect(errors, `malformed or unsupported diagrams:\n${errors.join("\n---\n")}`).toEqual([]);
+    const pdf = await exportPdf(page, "diagram-1.pdf");
+
+    expect([...pdf.matchAll(/\/Subtype \/Image/g)].length).toBe(examples.length - 1);
+    expect(pdf).toContain("Embedded");
+    for (let index = 1; index <= examples.length; index += 1) {
+        expect(pdf).toContain(`Diagram ${index}`);
+    }
+});
+
 test("exports every block type of a real document", async ({ page }) => {
     await page.goto("/");
     await page.getByLabel("Markdown editor").fill(DOC);
@@ -222,4 +273,66 @@ test("typesets emphasis with the matching base fonts", async ({ page }) => {
     expect(runFont(pdf, "italic")).toBe("Times-Italic");
     expect(runFont(pdf, "code")).toBe("Courier");
     expect(runFont(pdf, "Plain")).toBe("Times-Roman");
+});
+
+test("embeds selectable KaTeX glyphs and preserves the source text in PDF", async ({ page }) => {
+    await page.goto("/");
+    await page
+        .getByLabel("Markdown editor")
+        .fill("# Math export\n\n$$\n\\frac{1}{2}+x^2=\\sqrt{y}\n$$\n\nFollowing text.");
+    await expect(page.locator(".preview__flow .katex-display .katex")).toHaveCount(1);
+
+    const pdf = await exportPdf(page, "math-export.pdf");
+
+    expect(pdf).toContain("/Subtype /Type0");
+    expect(pdf).toContain("/FontFile2");
+    expect(pdf).toContain("/ToUnicode");
+    expect(pdf).toContain("frac{1}{2}+x^2=");
+    expect(pdf).toContain("sqrt{y}");
+    expect(pdf).toContain("3 Tr");
+    expect(pdf).toContain("<0001> <0078>");
+    expect(pdf).toContain("Following text.");
+});
+
+test("keeps PDF math geometry independent of the preview zoom", async ({ page }) => {
+    await page.goto("/");
+    await page
+        .getByLabel("Markdown editor")
+        .fill("Inline $\\frac{a}{b}+x^2$ and display:\n\n\\[\\sqrt{y}+\\frac{1}{2}\\]");
+    await expect(page.locator(".preview__flow .katex")).toHaveCount(2);
+
+    const defaultZoom = await exportPdf(page, "document.pdf");
+    await page.locator(".preview__zoomer").evaluate((element) => {
+        (element as HTMLElement).style.transform = "scale(0.5)";
+    });
+    const changedZoom = await exportPdf(page, "document.pdf");
+
+    expect(changedZoom).toBe(defaultZoom);
+});
+
+test("fits an oversized equation to the page and keeps PDF pagination aligned", async ({
+    page
+}) => {
+    await page.goto("/");
+    const wideFormula = Array.from(
+        { length: 180 },
+        (_, index) => `x_{${index}}+\\frac{y_{${index}}}{z_{${index}}+1}`
+    ).join("+");
+    const surroundingText = Array.from(
+        { length: 75 },
+        (_, index) => `Paragraph ${index + 1} keeps page breaks observable after the equation.`
+    ).join("\n\n");
+    await page
+        .getByLabel("Markdown editor")
+        .fill(`# Wide equation\n\n$$\n${wideFormula}\n$$\n\n${surroundingText}`);
+    await expect(page.locator(".preview__flow .katex-display .katex")).toHaveCount(1);
+
+    const previewPages = await page.locator(".page-frame").count();
+    const pdf = await exportPdf(page, "wide-equation.pdf");
+    const pdfPages = pagesOf(pdf);
+
+    expect(pdf).toContain("/FontFile2");
+    expect(pdf).toContain("x_{0}+");
+    expect(pdfPages.length).toBe(previewPages);
+    expect(pdfPages.length).toBeGreaterThan(1);
 });

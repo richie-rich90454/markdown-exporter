@@ -103,6 +103,23 @@ describe("images in the PDF", () => {
         ).toBeGreaterThan(0);
     });
 
+    it("keeps an inline SVG diagram that shares a paragraph with words", () => {
+        const blocks = parseBlocks(
+            flow(
+                '<p>Before <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 10" ' +
+                    'aria-label="Diagram"><text x="1" y="8">A</text></svg> after</p>'
+            )
+        );
+        const image = blocks[0]?.kind === "group" ? blocks[0].blocks[1] : undefined;
+
+        expect(image?.kind).toBe("image");
+        if (image?.kind !== "image") return;
+        const layout = paginate(blocks, SETUP, new Map([[image.src, true]]));
+
+        expect(layout.images).toHaveLength(1);
+        expect(layout.pages.flat().some((op) => op.kind === "image")).toBe(true);
+    });
+
     it("does not reference an image object that was not supplied", () => {
         const host = flow('<p><img src="a.png" alt="A"></p><p><img src="b.png" alt="B"></p>');
         for (const image of Array.from(host.querySelectorAll("img"))) {

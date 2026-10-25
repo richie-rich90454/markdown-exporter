@@ -23,15 +23,21 @@ export class PdfExporter implements DocumentExporter {
         const embeds = new Map<string, boolean>();
         const drawn = new Map<string, PdfImageSource | null>();
         for (const [src, bitmap] of decoded) {
-            embeds.set(src, bitmap !== null);
-            drawn.set(src, bitmap === null ? null : await rasterize(bitmap));
+            const image = bitmap === null ? null : await rasterize(bitmap);
+            embeds.set(src, image !== null);
+            drawn.set(src, image);
         }
         const layout: LaidOut = paginate(parseBlocks(request.content), request.pageSetup, embeds);
+        const katexFonts =
+            layout.mathFonts.length > 0
+                ? (await import("./KatexPdfFonts")).loadKatexPdfFonts(layout.mathFonts)
+                : undefined;
         const bytes: Uint8Array = writePdf(
             layout,
             layout.images.map((image) => drawn.get(image.src) ?? null),
             request.title,
-            request.pageSetup
+            request.pageSetup,
+            katexFonts
         );
         this.fileSaver.saveBlob(
             new Blob([bytes as BlobPart], { type: "application/pdf" }),

@@ -61,6 +61,21 @@ describe("PdfExporter", () => {
         expect(bytes).toContain("(Body text.) Tj");
     });
 
+    it("keeps rendered math vector text and adds searchable TeX source", async () => {
+        const content = build(
+            '<p>Ratio <span class="katex"><span class="katex-html">1/2 + x2</span>' +
+                '<span class="katex-mathml"><math><semantics>' +
+                '<annotation encoding="application/x-tex">\\frac{1}{2} + x^2</annotation>' +
+                "</semantics></math></span></span></p>"
+        );
+        const bytes = await pdfBytes(content, new MemorySaver());
+
+        expect(bytes).toContain("(1/2) Tj");
+        expect(bytes).toContain("( + x2) Tj");
+        expect(bytes).toContain("3 Tr");
+        expect(bytes).toContain("(\\\\frac{1}{2} + x^2) Tj");
+    });
+
     it("lays out pages and numbers them", async () => {
         const paragraphs = Array.from(
             { length: 200 },

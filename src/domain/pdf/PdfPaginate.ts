@@ -34,6 +34,9 @@ interface Piece {
     readonly key: FontKey;
     readonly size: number;
     readonly link?: string | undefined;
+    readonly searchableText?: string | undefined;
+    readonly math?: Run["math"] | undefined;
+    readonly mathScale?: number | undefined;
 }
 
 interface Line {
@@ -47,6 +50,7 @@ class Cursor {
     y: number;
     readonly images: ImageRef[] = [];
     readonly fonts = new Set<FontKey>();
+    readonly mathFonts = new Set<string>();
     lastText: { readonly page: number; readonly y: number } | undefined;
 
     constructor(readonly setup: PageSetup) {
@@ -81,6 +85,9 @@ class Cursor {
         if (op.kind === "text") {
             this.fonts.add(op.font);
             this.lastText = { page: this.page, y: op.y };
+        } else if (op.kind === "math") {
+            for (const glyph of op.math.glyphs) this.mathFonts.add(glyph.font);
+            this.lastText = { page: this.page, y: op.y };
         }
         this.pages[this.page]?.push(op);
     }
@@ -110,7 +117,12 @@ export function paginate(
         ...ops,
         footer(index + 1, cursor.pages.length, setup)
     ]);
-    return { pages, images: cursor.images, fonts: [...cursor.fonts] };
+    return {
+        pages,
+        images: cursor.images,
+        fonts: [...cursor.fonts],
+        mathFonts: [...cursor.mathFonts]
+    };
 }
 
 function footer(page: number, total: number, setup: PageSetup): DrawOp {
@@ -163,7 +175,7 @@ function place(
         case "heading": {
             const size = headingSizePt(cursor.setup, block.level);
             const lines = wrap(block.runs, area.width, cursor, size, true);
-            const height = lines.length * size * cursor.setup.lineHeight;
+            const height = lines.reduce((total, line) => total + line.height, 0);
             const bodyLine = bodySizePt(cursor.setup) * cursor.setup.lineHeight;
             // A heading alone at the foot of a page reads as a mistake, so it
             // moves when not even one body line fits under it.
@@ -175,7 +187,11 @@ function place(
         }
         case "paragraph": {
             const size = bodySizePt(cursor.setup);
-            flow(wrap(block.runs, area.width, cursor, size, false), size, area.x, cursor);
+            flow(wrap(block.runs, area.width, cursor, size, false), area.x, cursor);
+            return;
+        }
+        case "math": {
+            placeMath(block.math, cursor, area);
             return;
         }
         case "code": {
@@ -220,6 +236,8 @@ function gapFor(block: Block, cursor: Cursor): number {
         case "paragraph":
         case "group":
             return line * 0.55;
+        case "math":
+            return line * 0.75;
         case "code":
         case "table":
         case "image":
@@ -253,27 +271,39 @@ function drawQuoteBar(
     }
 }
 
-function flow(lines: readonly Line[], size: number, x: number, cursor: Cursor): void {
+function flow(lines: readonly Line[], x: number, cursor: Cursor): void {
     let index = 0;
     while (index < lines.length) {
-        const perLine = size * cursor.setup.lineHeight;
-        let fits = Math.floor((cursor.y - cursor.bottom) / perLine);
-        if (fits <= 0) {
-            if (cursor.y >= cursor.top) {
-                fits = 1;
-            } else {
+        const available = cursor.y - cursor.bottom;
+        let count = 0;
+        let used = 0;
+        while (index + count < lines.length) {
+            const line = lines[index + count];
+            if (line === undefined || used + line.height > available) break;
+            used += line.height;
+            count += 1;
+        }
+        if (count === 0) {
+            if (cursor.y < cursor.top) {
                 cursor.newPage();
                 continue;
             }
+            // A single inline formula may be taller than the page. wrap() caps
+            // its scale to the printable height, so this is only a safeguard.
+            const line = lines[index];
+            if (line === undefined) break;
+            count = 1;
+            used = line.height;
         }
-        const count = Math.min(fits, lines.length - index);
+        let offset = 0;
         for (let step = 0; step < count; step += 1) {
             const line = lines[index + step];
             if (line !== undefined) {
-                drawLine(line, x, cursor.y - (step + 1) * perLine, cursor);
+                offset += line.height;
+                drawLine(line, x, cursor.y - offset, cursor);
             }
         }
-        cursor.y -= count * perLine;
+        cursor.y -= used;
         index += count;
         if (index < lines.length) {
             cursor.newPage();
@@ -282,10 +312,9 @@ function flow(lines: readonly Line[], size: number, x: number, cursor: Cursor): 
 }
 
 function drawLines(lines: readonly Line[], x: number, cursor: Cursor): void {
-    const size = lines[0]?.pieces[0]?.size ?? bodySizePt(cursor.setup);
     let y = cursor.y;
     for (const line of lines) {
-        y -= size * cursor.setup.lineHeight;
+        y -= line.height;
         drawLine(line, x, y, cursor);
     }
     cursor.y = y;
@@ -312,6 +341,18 @@ function drawLine(line: Line, x: number, baseline: number, cursor: Cursor): void
             size: pending.size,
             gray: INK
         });
+        if (pending.searchableText !== undefined) {
+            cursor.emit({
+                kind: "text",
+                x: groupStart,
+                y: baseline,
+                text: pending.searchableText,
+                font: pending.key,
+                size: pending.size,
+                gray: INK,
+                renderMode: "invisible"
+            });
+        }
         if (pending.link !== undefined) {
             cursor.emit({
                 kind: "rect",
@@ -335,25 +376,48 @@ function drawLine(line: Line, x: number, baseline: number, cursor: Cursor): void
     };
 
     for (const piece of line.pieces) {
+        if (piece.math !== undefined) {
+            flush();
+            const scale = piece.mathScale ?? 1;
+            cursor.emit({
+                kind: "math",
+                x: position,
+                y: baseline + piece.math.verticalAlign * scale,
+                scale,
+                math: piece.math
+            });
+            position += piece.math.width * scale;
+            groupStart = position;
+            continue;
+        }
         const width = textWidth(piece.text, piece.key, piece.size);
         const continues =
             pending !== undefined &&
             pending.key === piece.key &&
             pending.size === piece.size &&
-            pending.link === piece.link;
+            pending.link === piece.link &&
+            pending.searchableText === undefined &&
+            piece.searchableText === undefined;
         if (pending !== undefined && !continues) {
             flush();
         }
         if (pending === undefined) {
             groupStart = position;
-            pending = { text: piece.text, key: piece.key, size: piece.size, link: piece.link };
+            pending = {
+                text: piece.text,
+                key: piece.key,
+                size: piece.size,
+                link: piece.link,
+                searchableText: piece.searchableText
+            };
             pendingWidth = width;
         } else {
             pending = {
                 text: `${pending.text}${piece.text}`,
                 key: pending.key,
                 size: pending.size,
-                link: pending.link
+                link: pending.link,
+                searchableText: pending.searchableText
             };
             pendingWidth += width;
         }
@@ -373,14 +437,34 @@ function wrap(
     const atoms: (Piece | null)[] = [];
     for (const run of runs) {
         const key = font(run.bold || bold, run.italic, run.mono, family);
+        if (run.math !== undefined) {
+            const fontScale = size / run.math.baseFontSize;
+            const widthScale = run.math.width > 0 ? width / (run.math.width * fontScale) : 1;
+            const printableHeight = pageHeightPt(cursor.setup) - 2 * marginPt(cursor.setup);
+            const mathHeight = run.math.height - run.math.verticalAlign;
+            const heightScale = mathHeight > 0 ? printableHeight / mathHeight : fontScale;
+            const mathScale = Math.min(fontScale, widthScale, heightScale);
+            atoms.push({
+                text: "",
+                key,
+                size,
+                link: run.link,
+                searchableText: run.math.searchableText,
+                math: run.math,
+                mathScale
+            });
+            continue;
+        }
         const segments = run.text.split("\n");
         for (let index = 0; index < segments.length; index += 1) {
             if (index > 0) {
                 atoms.push(null);
             }
+            let searchableText = index === 0 ? run.searchableText : undefined;
             for (const word of (segments[index] ?? "").split(" ")) {
                 if (word.length > 0) {
-                    atoms.push({ text: word, key, size, link: run.link });
+                    atoms.push({ text: word, key, size, link: run.link, searchableText });
+                    searchableText = undefined;
                     atoms.push({ text: " ", key, size, link: run.link });
                 }
             }
@@ -398,7 +482,15 @@ function wrap(
         while (current.length > 0 && current[current.length - 1]?.text === " ") {
             current.pop();
         }
-        lines.push({ pieces: current, height: size * cursor.setup.lineHeight });
+        const mathHeight = current.reduce((height, piece) => {
+            if (piece.math === undefined) return height;
+            const scale = piece.mathScale ?? 1;
+            return Math.max(height, piece.math.height * scale - piece.math.verticalAlign * scale);
+        }, 0);
+        lines.push({
+            pieces: current,
+            height: Math.max(size * cursor.setup.lineHeight, mathHeight)
+        });
         current = [];
         used = 0;
     };
@@ -408,7 +500,7 @@ function wrap(
             flush();
             continue;
         }
-        const atomWidth = textWidth(atom.text, atom.key, atom.size);
+        const atomWidth = pieceWidth(atom);
         if (atom.text === " ") {
             if (current.length === 0 || used + atomWidth > width) {
                 continue;
@@ -420,13 +512,21 @@ function wrap(
         if (used + atomWidth > width && current.length > 0) {
             flush();
         }
-        if (atomWidth > width) {
+        if (atomWidth > width && atom.math === undefined) {
+            let searchableText = atom.searchableText;
             for (const char of atom.text) {
                 const charWidth = textWidth(char, atom.key, atom.size);
                 if (used + charWidth > width && current.length > 0) {
                     flush();
                 }
-                current.push({ text: char, key: atom.key, size: atom.size, link: atom.link });
+                current.push({
+                    text: char,
+                    key: atom.key,
+                    size: atom.size,
+                    link: atom.link,
+                    searchableText
+                });
+                searchableText = undefined;
                 used += charWidth;
             }
             continue;
@@ -438,6 +538,51 @@ function wrap(
         flush();
     }
     return lines;
+}
+
+function pieceWidth(piece: Piece): number {
+    if (piece.math !== undefined) return piece.math.width * (piece.mathScale ?? 1);
+    return textWidth(piece.text, piece.key, piece.size);
+}
+
+function lineAscent(line: Line, fallbackSize: number): number {
+    return line.pieces.reduce((ascent, piece) => {
+        if (piece.math === undefined) return Math.max(ascent, piece.size * 0.85);
+        const scale = piece.mathScale ?? 1;
+        return Math.max(ascent, (piece.math.height + piece.math.verticalAlign) * scale);
+    }, fallbackSize * 0.85);
+}
+
+function lineDescent(line: Line, fallbackSize: number): number {
+    return line.pieces.reduce((descent, piece) => {
+        if (piece.math === undefined) return Math.max(descent, piece.size * 0.2);
+        const scale = piece.mathScale ?? 1;
+        return Math.max(descent, -piece.math.verticalAlign * scale);
+    }, fallbackSize * 0.2);
+}
+
+function placeMath(math: NonNullable<Run["math"]>, cursor: Cursor, area: Area): void {
+    const bodySize = bodySizePt(cursor.setup);
+    const fontScale = bodySize / math.baseFontSize;
+    const widthScale = math.width > 0 ? area.width / (math.width * fontScale) : 1;
+    let scale = Math.min(fontScale, widthScale);
+    let height = math.height * scale;
+    let available = cursor.y - cursor.bottom;
+    if (height > available && cursor.y < cursor.top) {
+        cursor.newPage();
+        available = cursor.y - cursor.bottom;
+    }
+    // A single equation can be taller than a page. Shrink it uniformly so its
+    // glyphs and rules stay together inside the printable area.
+    if (height > available && height > 0) {
+        scale *= available / height;
+        height = available;
+    }
+    const width = math.width * scale;
+    const x = area.x + Math.max(0, (area.width - width) / 2);
+    const y = cursor.y - height;
+    cursor.emit({ kind: "math", x, y, scale, math });
+    cursor.y = y;
 }
 
 // A code block longer than a page continues on the next one, and each part
@@ -522,18 +667,38 @@ function placeList(
             cursor.y -= itemGap;
         }
         const start = cursor.y;
+        const firstPage = cursor.page;
+        const previousPageLengths = cursor.pages.map((page) => page.length);
         item.forEach((block, blockIndex) => {
             place(block, cursor, inner, embeds, blockIndex === 0 || cursor.y >= cursor.top);
         });
-        cursor.emit({
+        let markerPage = firstPage;
+        let markerY = start - size * cursor.setup.lineHeight;
+        for (let page = firstPage; page <= cursor.page; page += 1) {
+            const operations = cursor.pages[page] ?? [];
+            const offset = page === firstPage ? (previousPageLengths[page] ?? 0) : 0;
+            const firstLine = operations
+                .slice(offset)
+                .find((operation) => operation.kind === "text" || operation.kind === "math");
+            if (firstLine === undefined) continue;
+            markerPage = page;
+            markerY =
+                firstLine.kind === "math"
+                    ? firstLine.y - firstLine.math.verticalAlign * firstLine.scale
+                    : firstLine.y;
+            break;
+        }
+        const markerOp: Extract<DrawOp, { kind: "text" }> = {
             kind: "text",
             x: area.x,
-            y: start - size * cursor.setup.lineHeight,
+            y: markerY,
             text: ordered ? `${number}.` : "\u2022",
             font: marker,
             size,
             gray: INK
-        });
+        };
+        cursor.pages[markerPage]?.push(markerOp);
+        cursor.fonts.add(marker);
         number += 1;
     });
 }
@@ -560,6 +725,38 @@ function placeTable(
     const widths = weights.map((weight) => (area.width * weight) / total);
     const fullWidth = widths.reduce((sum, width) => sum + width, 0);
 
+    const prepareRow = (cells: readonly (readonly Run[])[], strong: boolean) => {
+        const runs = cells.map((cell) => cell.map((run) => ({ ...run, bold: strong || run.bold })));
+        const linesPerCell = runs.map((cell, column) =>
+            wrap(cell, (widths[column] ?? 40) - 2 * CELL_PAD, cursor, size, false)
+        );
+        const contentHeight = Math.max(
+            size * setup.lineHeight,
+            ...linesPerCell.map((lines) => {
+                if (lines.length === 0) return 0;
+                const first = lines[0];
+                const last = lines[lines.length - 1];
+                if (first === undefined || last === undefined) return 0;
+                const stackedHeight = lines
+                    .slice(1)
+                    .reduce((height, line) => height + line.height, 0);
+                const totalHeight = lines.reduce((height, line) => height + line.height, 0);
+                return Math.max(
+                    totalHeight,
+                    lineAscent(first, size) + stackedHeight + lineDescent(last, size)
+                );
+            })
+        );
+        return {
+            linesPerCell,
+            firstAscent: linesPerCell.map((lines) => {
+                const first = lines[0];
+                return first === undefined ? size * 0.85 : lineAscent(first, size);
+            }),
+            height: contentHeight + 2 * CELL_PAD
+        };
+    };
+
     // Every row draws its own top edge; the bottom edge is only closed when the
     // next row lands on another page or the table ends.
     let openBottom: number | undefined;
@@ -580,24 +777,20 @@ function placeTable(
         openBottom = undefined;
     };
 
-    const drawRow = (cells: readonly (readonly Run[])[], strong: boolean): void => {
-        if (cells.length === 0) {
+    const drawRow = (row: ReturnType<typeof prepareRow>): void => {
+        if (row.linesPerCell.length === 0) {
             return;
         }
-        const runs = cells.map((cell) => cell.map((run) => ({ ...run, bold: strong || run.bold })));
-        const linesPerCell = runs.map((cell, column) =>
-            wrap(cell, (widths[column] ?? 40) - 2 * CELL_PAD, cursor, size, false)
-        );
-        const tallest = Math.max(...linesPerCell.map((lines) => lines.length), 0);
-        const rowHeight = tallest * size * setup.lineHeight + 2 * CELL_PAD;
+        const rowHeight = row.height;
         const top = cursor.y;
         let x = area.x;
         for (let column = 0; column < columns; column += 1) {
             const width = widths[column] ?? 40;
-            let y = top - CELL_PAD - size * 0.85;
-            for (const line of linesPerCell[column] ?? []) {
+            const lines = row.linesPerCell[column] ?? [];
+            let y = top - CELL_PAD - (row.firstAscent[column] ?? size * 0.85);
+            for (const [index, line] of lines.entries()) {
+                if (index > 0) y -= line.height;
                 drawLine(line, x + CELL_PAD, y, cursor);
-                y -= size * setup.lineHeight;
             }
             if (column > 0) {
                 cursor.emit({
@@ -628,26 +821,32 @@ function placeTable(
     // The header row belongs above the body on every page the table reaches,
     // not only after a break, and it repeats after each one.
     let headerDrawn = false;
+    const headerRow = prepareRow(head, true);
     const drawHeader = (): void => {
         if (headerDrawn || head.length === 0) {
             return;
         }
-        if (cursor.y - (size * setup.lineHeight + 2 * CELL_PAD) < cursor.bottom) {
+        if (cursor.y - headerRow.height < cursor.bottom && cursor.y < cursor.top) {
             closeRow();
             cursor.newPage();
         }
-        drawRow(head, true);
+        drawRow(headerRow);
         headerDrawn = true;
     };
 
     for (const row of body) {
-        if (cursor.y - (size * setup.lineHeight + 2 * CELL_PAD) < cursor.bottom) {
+        const preparedRow = prepareRow(row, false);
+        const pendingHeader = !headerDrawn && head.length > 0 ? headerRow.height : 0;
+        if (
+            cursor.y - preparedRow.height - pendingHeader < cursor.bottom &&
+            cursor.y < cursor.top
+        ) {
             closeRow();
             cursor.newPage();
             headerDrawn = false;
         }
         drawHeader();
-        drawRow(row, false);
+        drawRow(preparedRow);
     }
     drawHeader();
     closeRow();

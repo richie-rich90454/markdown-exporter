@@ -1,0 +1,103 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { HtmlExporter } from "../../src/adapter/exporter/HtmlExporter";
+import { ExportFormat } from "../../src/domain/ExportFormat";
+import { ExportRequest } from "../../src/domain/ExportRequest";
+import type { PageSetup } from "../../src/domain/PageSetup";
+import { RenderedDocument } from "../../src/domain/RenderedDocument";
+import type { FileSaver } from "../../src/port/FileSaver";
+
+const SETUP: PageSetup = {
+    pageSize: "a4",
+    marginMm: 20,
+    fontFamily: "serif",
+    fontSizePt: 11,
+    lineHeight: 1.6
+};
+
+class MemorySaver implements FileSaver {
+    blob: Blob | undefined;
+
+    saveBlob(blob: Blob): void {
+        this.blob = blob;
+    }
+}
+
+function request(content: HTMLElement): ExportRequest {
+    return new ExportRequest(
+        ExportFormat.HTML,
+        new RenderedDocument(document.createDocumentFragment(), "Math notes", 0),
+        "Math notes",
+        content,
+        SETUP
+    );
+}
+
+describe("HtmlExporter", () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it("keeps ordinary documents lightweight", async () => {
+        const saver = new MemorySaver();
+        const content = document.createElement("div");
+        content.innerHTML = "<p>Plain Markdown</p>";
+
+        await new HtmlExporter(saver).export(request(content));
+
+        expect(await saver.blob?.text()).not.toContain("KaTeX_Main-Regular");
+    });
+
+    it("embeds KaTeX styles and fonts for offline math", async () => {
+        const saver = new MemorySaver();
+        const content = document.createElement("div");
+        content.innerHTML =
+            '<span class="katex"><span class="katex-html">x</span>' +
+            '<span class="katex-mathml"><math><mi>x</mi></math></span></span>';
+
+        await new HtmlExporter(saver).export(request(content));
+        const html = await saver.blob?.text();
+
+        expect(html).toContain(".katex-html");
+        expect(html).toContain("data:font/woff2;base64,");
+        expect(html).toContain("<math");
+        expect(html).not.toContain("url(fonts/KaTeX_");
+    });
+
+    it("embeds image data and removes responsive image URLs for offline use", async () => {
+        vi.stubGlobal(
+            "fetch",
+            vi.fn().mockResolvedValue({
+                ok: true,
+                blob: () => Promise.resolve(new Blob(["pixels"], { type: "image/png" }))
+            })
+        );
+        const saver = new MemorySaver();
+        const content = document.createElement("div");
+        content.innerHTML =
+            '<picture><source srcset="https://example.com/large.png 2x">' +
+            '<img src="https://example.com/small.png" alt="Diagram" ' +
+            'srcset="https://example.com/small.png 1x"></picture>';
+
+        await new HtmlExporter(saver).export(request(content));
+        const html = await saver.blob?.text();
+
+        expect(html).toContain('src="data:image/png;base64,');
+        expect(html).not.toContain("https://example.com/");
+        expect(html).toContain('alt="Diagram"');
+    });
+
+    it("replaces images that cannot be embedded with an offline alt-text fallback", async () => {
+        vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Network unavailable")));
+        const saver = new MemorySaver();
+        const content = document.createElement("div");
+        content.innerHTML = '<img src="https://example.com/diagram.png" alt="A diagram">';
+
+        await new HtmlExporter(saver).export(request(content));
+        const html = await saver.blob?.text();
+
+        expect(html).not.toContain("https://example.com/diagram.png");
+        expect(html).toContain('class="offline-image-fallback"');
+        expect(html).toContain("Image unavailable offline: A diagram");
+    });
+});

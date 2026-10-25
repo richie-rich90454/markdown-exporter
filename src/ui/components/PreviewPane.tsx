@@ -35,6 +35,14 @@ export function PreviewPane(props: PreviewPaneProps) {
     let viewport: HTMLDivElement | undefined;
     let stack: HTMLDivElement | undefined;
     let flow: HTMLDivElement | undefined;
+    let pageObserver: IntersectionObserver | undefined;
+    let pagePaint:
+        | {
+              readonly layout: LaidOut;
+              readonly settings: PageSetup;
+              readonly decoded: ReadonlyMap<string, ImageBitmap | null>;
+          }
+        | undefined;
 
     // Each pass numbers itself, so a slow image decode cannot overwrite the
     // pages of a document the user has already moved on from.
@@ -107,6 +115,7 @@ export function PreviewPane(props: PreviewPaneProps) {
     });
 
     onCleanup(() => {
+        pageObserver?.disconnect();
         flow?.removeEventListener("load", onMediaLoad, true);
     });
 
@@ -138,6 +147,10 @@ export function PreviewPane(props: PreviewPaneProps) {
     function focusPage(index: number): void {
         setActivePage(index);
         const frame = stack?.querySelector<HTMLElement>(`.page-frame[data-page-index="${index}"]`);
+        if (frame !== null && frame !== undefined) {
+            frame.scrollIntoView({ block: "nearest" });
+            paintFrame(frame);
+        }
         frame?.focus();
     }
 
@@ -193,11 +206,14 @@ export function PreviewPane(props: PreviewPaneProps) {
         if (stack === undefined) {
             return;
         }
+        pageObserver?.disconnect();
+        pageObserver = undefined;
+        pagePaint = { layout, settings, decoded };
         for (const element of Array.from(stack.querySelectorAll(".page-frame, .page-label"))) {
             element.remove();
         }
         const page = pagePixels(settings);
-        layout.pages.forEach((ops, index) => {
+        layout.pages.forEach((_ops, index) => {
             const frame = createPageFrame({
                 index,
                 total: layout.pages.length,
@@ -208,18 +224,33 @@ export function PreviewPane(props: PreviewPaneProps) {
                 }
             });
             frame.style.top = `${index * (page.height + PAGE_GAP)}px`;
-            const canvas = document.createElement("canvas");
-            canvas.className = "page-canvas";
-            canvas.setAttribute("role", "img");
-            canvas.setAttribute("aria-label", `Page ${index + 1} preview`);
-            frame.appendChild(canvas);
+            frame.dataset.pageIndex = String(index);
             stack?.appendChild(frame);
-            paintPage(canvas, ops, layout, settings, decoded);
+
+            if (typeof IntersectionObserver === "undefined") {
+                paintFrame(frame);
+            }
 
             const label = createPageLabel(index, layout.pages.length);
             label.style.top = `${index * (page.height + PAGE_GAP) + page.height + 4}px`;
             stack?.appendChild(label);
         });
+        if (typeof IntersectionObserver !== "undefined") {
+            const root = stack.closest<HTMLElement>(".pane--preview");
+            pageObserver = new IntersectionObserver(
+                (entries) => {
+                    for (const entry of entries) {
+                        if (!(entry.target instanceof HTMLElement)) continue;
+                        if (entry.isIntersecting) paintFrame(entry.target);
+                        else releaseFrame(entry.target);
+                    }
+                },
+                { root, rootMargin: "900px 0px" }
+            );
+            for (const frame of Array.from(stack.querySelectorAll<HTMLElement>(".page-frame"))) {
+                pageObserver.observe(frame);
+            }
+        }
         const total = layout.pages.length;
         const height = (total - 1) * (page.height + PAGE_GAP) + page.height + 24;
         stack.style.height = `${height}px`;
@@ -228,10 +259,86 @@ export function PreviewPane(props: PreviewPaneProps) {
         }
     }
 
+    function paintFrame(frame: HTMLElement): void {
+        const context = pagePaint;
+        const index = Number(frame.dataset.pageIndex ?? "-1");
+        const ops = context?.layout.pages[index];
+        if (
+            context === undefined ||
+            ops === undefined ||
+            frame.querySelector(".page-canvas") !== null
+        ) {
+            return;
+        }
+        const canvas = document.createElement("canvas");
+        canvas.className = "page-canvas";
+        canvas.setAttribute("role", "img");
+        canvas.setAttribute("aria-label", `Page ${index + 1} preview`);
+        frame.appendChild(canvas);
+        paintPage(canvas, ops, context.layout, context.settings, context.decoded);
+        paintMathOverlays(frame, ops, context.settings);
+    }
+
+    function paintMathOverlays(
+        frame: HTMLElement,
+        ops: readonly DrawOp[],
+        settings: PageSetup
+    ): void {
+        const pageHeight = pageHeightPt(settings);
+        for (const op of ops) {
+            if (op.kind !== "math") continue;
+            const math = op.math;
+            const preview = math.preview;
+            if (preview === undefined) continue;
+            const overlay = document.createElement("span");
+            overlay.className = "page-math-overlay";
+            overlay.setAttribute("aria-hidden", "true");
+            overlay.style.left = `${(op.x + preview.left * op.scale) * PX_PER_PT}px`;
+            overlay.style.top = `${(pageHeight - (op.y + (preview.bottom + preview.height) * op.scale)) * PX_PER_PT}px`;
+            overlay.style.width = `${preview.width * op.scale * PX_PER_PT}px`;
+            overlay.style.height = `${preview.height * op.scale * PX_PER_PT}px`;
+            overlay.style.fontSize = `${preview.fontSize * op.scale}px`;
+            overlay.style.textAlign = "center";
+            const mathElement = preview.element.cloneNode(true) as HTMLElement;
+            if (mathElement.classList.contains("katex-display")) {
+                // KaTeX's stacked limits need the original line-width context.
+                // Center that full-width layout over the measured formula box.
+                mathElement.style.display = "block";
+                mathElement.style.width = `${(preview.displayWidth ?? preview.width * PX_PER_PT) * op.scale}px`;
+                mathElement.style.margin = "0";
+                mathElement.style.position = "relative";
+                mathElement.style.left = `${
+                    -(
+                        ((preview.displayWidth ?? preview.width * PX_PER_PT) -
+                            preview.width * PX_PER_PT) /
+                        2
+                    ) * op.scale
+                }px`;
+            }
+            overlay.appendChild(mathElement);
+            frame.appendChild(overlay);
+        }
+    }
+
+    function releaseFrame(frame: HTMLElement): void {
+        const canvas = frame.querySelector<HTMLCanvasElement>(".page-canvas");
+        if (canvas !== null) {
+            canvas.width = 0;
+            canvas.height = 0;
+            canvas.remove();
+        }
+        for (const overlay of Array.from(frame.querySelectorAll(".page-math-overlay"))) {
+            overlay.remove();
+        }
+    }
+
     function renderEmpty(active: number): void {
         if (stack === undefined) {
             return;
         }
+        pageObserver?.disconnect();
+        pageObserver = undefined;
+        pagePaint = undefined;
         for (const element of Array.from(stack.querySelectorAll(".page-frame, .page-label"))) {
             element.remove();
         }
@@ -372,6 +479,11 @@ function paintPage(
                 const style = `${op.font.italic ? "italic " : ""}${op.font.bold ? "bold " : ""}`;
                 context.font = `${style}${(op.size * k).toFixed(2)}px ${fontStack(op.font)}`;
                 context.fillText(op.text, op.x * k, down(op.y));
+                break;
+            }
+            case "math": {
+                // The DOM overlay uses KaTeX's own layout for accurate scripts,
+                // accents, delimiters, and operator sizing. PDF remains vector.
                 break;
             }
             case "rect": {

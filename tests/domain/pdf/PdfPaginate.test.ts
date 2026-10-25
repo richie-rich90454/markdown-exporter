@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { marginPt, pageHeightPt, pageWidthPt, type PageSetup } from "../../../src/domain/PageSetup";
 import type { DrawOp, LaidOut } from "../../../src/domain/pdf/PdfLayout";
+import type { MathLayout } from "../../../src/domain/pdf/MathLayout";
 import { parseBlocks } from "../../../src/domain/pdf/PdfLayout";
 import { baseFont, font, textWidth } from "../../../src/domain/pdf/PdfMetrics";
 import { paginate } from "../../../src/domain/pdf/PdfPaginate";
@@ -97,6 +98,91 @@ describe("page geometry", () => {
         }
     });
 
+    it("reserves extra line height for tall inline formulas", () => {
+        const math: MathLayout = {
+            width: 24,
+            height: 54,
+            baseFontSize: 12,
+            verticalAlign: -3,
+            searchableText: "\\frac{1}{2}",
+            glyphs: [],
+            rules: []
+        };
+        const doc = paginate(
+            [
+                {
+                    kind: "paragraph",
+                    runs: [
+                        { text: "Before\n", bold: false, italic: false, mono: false },
+                        { text: "", bold: false, italic: false, mono: false, math },
+                        { text: "\nAfter", bold: false, italic: false, mono: false }
+                    ]
+                }
+            ],
+            SETUP,
+            new Map<string, boolean>()
+        );
+        const page = doc.pages[0] ?? [];
+        const before = page.find(
+            (op): op is Extract<DrawOp, { kind: "text" }> =>
+                op.kind === "text" && op.text.includes("Before")
+        );
+        const after = page.find(
+            (op): op is Extract<DrawOp, { kind: "text" }> =>
+                op.kind === "text" && op.text.includes("After")
+        );
+        const formula = page.find(
+            (op): op is Extract<DrawOp, { kind: "math" }> => op.kind === "math"
+        );
+
+        expect(before).toBeDefined();
+        expect(after).toBeDefined();
+        expect(formula).toBeDefined();
+        expect((formula?.y ?? 0) + math.height * (formula?.scale ?? 0)).toBeLessThanOrEqual(
+            before?.y ?? 0
+        );
+    });
+
+    it("keeps tall inline formulas inside their table row", () => {
+        const math: MathLayout = {
+            width: 24,
+            height: 54,
+            baseFontSize: 12,
+            verticalAlign: -3,
+            searchableText: "\\frac{1}{2}",
+            glyphs: [],
+            rules: []
+        };
+        const doc = paginate(
+            [
+                {
+                    kind: "table",
+                    head: [[{ text: "Value", bold: false, italic: false, mono: false }]],
+                    body: [[[{ text: "", bold: false, italic: false, mono: false, math }]]]
+                }
+            ],
+            SETUP,
+            new Map<string, boolean>()
+        );
+        const page = doc.pages[0] ?? [];
+        const formula = page.find(
+            (op): op is Extract<DrawOp, { kind: "math" }> => op.kind === "math"
+        );
+        const borders = page
+            .filter(
+                (op): op is Extract<DrawOp, { kind: "line" }> =>
+                    op.kind === "line" && op.x1 === LEFT && op.x2 > LEFT && op.y1 === op.y2
+            )
+            .sort((left, right) => right.y1 - left.y1);
+        const rowTop = borders[1]?.y1;
+
+        expect(formula).toBeDefined();
+        expect(rowTop).toBeDefined();
+        expect((formula?.y ?? 0) + math.height * (formula?.scale ?? 0)).toBeLessThanOrEqual(
+            (rowTop ?? 0) - 5
+        );
+    });
+
     it("starts every block at the left margin", () => {
         const doc = layout(
             `<p>First paragraph with a <strong>bold</strong> middle.</p><p>Second paragraph.</p>`
@@ -158,6 +244,20 @@ describe("page geometry", () => {
         expect(marker).toBeDefined();
         const firstLine = Math.max(...runs.map((op) => op.y));
         expect(marker?.y).toBe(firstLine);
+    });
+
+    it("keeps a long list item's marker on the page where its content starts", () => {
+        const paragraphs = repeated(
+            80,
+            (index) => `<p>Paragraph ${index + 1} continues the same list item.</p>`
+        );
+        const doc = layout(`<ul><li>${paragraphs}</li></ul>`);
+        const markerPages = doc.pages.flatMap((page, index) =>
+            page.some((op) => op.kind === "text" && op.text === "•") ? [index] : []
+        );
+
+        expect(doc.pages.length).toBeGreaterThan(1);
+        expect(markerPages).toEqual([0]);
     });
 });
 

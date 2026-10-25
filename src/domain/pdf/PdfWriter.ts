@@ -1,6 +1,21 @@
 import { baseFont } from "./PdfMetrics";
 import type { LaidOut, PdfImageSource } from "./PdfLayout";
 import { pageHeightPt, pageWidthPt, type PageSetup } from "../PageSetup";
+import { parseTrueType, type TrueTypeFont } from "./TrueTypeFont";
+
+interface EmbeddedMathFont {
+    readonly name: string;
+    readonly resource: string;
+    readonly font: TrueTypeFont;
+    readonly cids: ReadonlyMap<number, number>;
+    readonly type0: number;
+    readonly descendant: number;
+    readonly descriptor: number;
+    readonly fontFile: number;
+    readonly cidMap: number;
+    readonly toUnicode: number;
+    readonly codePoints: readonly number[];
+}
 
 // Windows ANSI beyond ASCII, which is what the base 14 fonts encode through
 // /WinAnsiEncoding.
@@ -38,7 +53,8 @@ export function writePdf(
     layout: LaidOut,
     images: readonly (PdfImageSource | null)[],
     title: string,
-    setup: PageSetup
+    setup: PageSetup,
+    katexFontData: ReadonlyMap<string, Uint8Array> = new Map()
 ): Uint8Array {
     const pageWidth = pageWidthPt(setup);
     const pageHeight = pageHeightPt(setup);
@@ -62,11 +78,15 @@ export function writePdf(
     const put = (index: number, body: string): void => {
         objects[index - 1] = encode(body);
     };
+    const putBytes = (index: number, body: Uint8Array): void => {
+        objects[index - 1] = body;
+    };
 
     const pagesIndex = reserve();
     const pageIndexes = layout.pages.map(() => reserve());
     const fontIndexes = fontBases.map(() => reserve());
     const imageIndexes = images.map(() => reserve());
+    const mathFonts = prepareMathFonts(layout, katexFontData, reserve);
 
     pageIndexes.forEach((pageIndex, order) => {
         const ops = layout.pages[order] ?? [];
@@ -80,9 +100,33 @@ export function writePdf(
                         fontIds.get(
                             `${op.font.family}|${op.font.bold}|${op.font.italic}|${op.font.mono}`
                         ) ?? 1;
+                    const renderMode = op.renderMode === "invisible" ? "3 Tr " : "";
+                    const resetRenderMode = op.renderMode === "invisible" ? " 0 Tr" : "";
                     stream.push(
-                        `${shade(op.gray)} BT /F${id} ${num(op.size)} Tf ${num(op.x)} ${num(op.y)} Td ${literal(op.text)} Tj ET`
+                        `${shade(op.gray)} BT /F${id} ${num(op.size)} Tf ${renderMode}${num(op.x)} ${num(op.y)} Td ${literal(op.text)} Tj${resetRenderMode} ET`
                     );
+                    break;
+                }
+                case "math": {
+                    for (const glyph of op.math.glyphs) {
+                        const face = mathFonts.find((font) => font.name === glyph.font);
+                        const codePoint = glyph.text.codePointAt(0) ?? 0;
+                        const cid = face?.cids.get(codePoint);
+                        if (face === undefined || cid === undefined) continue;
+                        stream.push(
+                            `0 g BT ${face.resource} ${num(glyph.size * op.scale)} Tf ${num(op.x + glyph.x * op.scale)} ${num(op.y + glyph.y * op.scale)} Td <${hex4(cid)}> Tj ET`
+                        );
+                    }
+                    for (const rule of op.math.rules) {
+                        stream.push(
+                            `0 g ${num(op.x + rule.x * op.scale)} ${num(op.y + rule.y * op.scale)} ${num(rule.width * op.scale)} ${num(rule.height * op.scale)} re f`
+                        );
+                    }
+                    if (op.math.searchableText.length > 0) {
+                        stream.push(
+                            `0 g BT /F1 3 Tf 3 Tr ${num(op.x)} ${num(op.y)} Td ${literal(op.math.searchableText)} Tj 0 Tr ET`
+                        );
+                    }
                     break;
                 }
                 case "rect": {
@@ -123,6 +167,9 @@ export function writePdf(
         const fontDict = fontIndexes
             .map((fontIndex, index) => `/F${index + 1} ${fontIndex} 0 R`)
             .join(" ");
+        const mathFontDict = mathFonts
+            .map((font) => `${font.resource} ${font.type0} 0 R`)
+            .join(" ");
         const imageDict = imageIndexes
             .map((imageIndex, index) =>
                 images[index] === undefined || images[index] === null
@@ -131,7 +178,7 @@ export function writePdf(
             )
             .filter((entry) => entry.length > 0)
             .join(" ");
-        const resources = `<< /Font << ${fontDict} >> /XObject << ${imageDict} >> >>`;
+        const resources = `<< /Font << ${fontDict} ${mathFontDict} >> /XObject << ${imageDict} >> >>`;
         const annots = links.length > 0 ? ` /Annots [${links.join(" ")}]` : "";
         put(
             pageIndex,
@@ -146,6 +193,8 @@ export function writePdf(
             `<< /Type /Font /Subtype /Type1 /BaseFont /${fontBases[index] ?? "Times-Roman"} /Encoding /WinAnsiEncoding >>`
         );
     });
+
+    for (const font of mathFonts) writeEmbeddedMathFont(font, put, putBytes);
 
     imageIndexes.forEach((imageIndex, index) => {
         const image = images[index];
@@ -200,6 +249,136 @@ export function writePdf(
 
 function shade(value: number): string {
     return value <= 0 ? "0 g" : value >= 1 ? "1 g" : `${value.toFixed(3)} g`;
+}
+
+function prepareMathFonts(
+    layout: LaidOut,
+    data: ReadonlyMap<string, Uint8Array>,
+    reserve: () => number
+): EmbeddedMathFont[] {
+    const codePointsByFont = new Map<string, Set<number>>();
+    for (const name of layout.mathFonts) codePointsByFont.set(name, new Set());
+    for (const page of layout.pages) {
+        for (const op of page) {
+            if (op.kind !== "math") continue;
+            for (const glyph of op.math.glyphs) {
+                const points = codePointsByFont.get(glyph.font);
+                const codePoint = glyph.text.codePointAt(0);
+                if (points !== undefined && codePoint !== undefined) points.add(codePoint);
+            }
+        }
+    }
+
+    const fonts: EmbeddedMathFont[] = [];
+    let index = 0;
+    for (const [name, codePoints] of codePointsByFont) {
+        const bytes = data.get(name);
+        if (bytes === undefined || codePoints.size === 0) continue;
+        const font = parseTrueType(bytes);
+        const orderedPoints = [...codePoints].sort((left, right) => left - right);
+        const cids = new Map<number, number>();
+        orderedPoints.forEach((point, order) => cids.set(point, order + 1));
+        fonts.push({
+            name,
+            resource: `/M${++index}`,
+            font,
+            cids,
+            codePoints: orderedPoints,
+            type0: reserve(),
+            descendant: reserve(),
+            descriptor: reserve(),
+            fontFile: reserve(),
+            cidMap: reserve(),
+            toUnicode: reserve()
+        });
+    }
+    return fonts;
+}
+
+function writeEmbeddedMathFont(
+    embedded: EmbeddedMathFont,
+    put: (index: number, body: string) => void,
+    putBytes: (index: number, body: Uint8Array) => void
+): void {
+    const { font, name } = embedded;
+    const baseName = name.replace(/\.ttf$/i, "");
+    const glyphIds = embedded.codePoints.map((point) => font.glyphFor(point));
+    const cidBytes = new Uint8Array((glyphIds.length + 1) * 2);
+    glyphIds.forEach((glyph, index) => {
+        cidBytes[(index + 1) * 2] = (glyph >>> 8) & 0xff;
+        cidBytes[(index + 1) * 2 + 1] = glyph & 0xff;
+    });
+    const cidMapHeader = encode(`<< /Length ${cidBytes.length} >>\nstream\n`);
+    putBytes(embedded.cidMap, concat(cidMapHeader, cidBytes, encode("\nendstream")));
+
+    const cmap = toUnicodeCmap(embedded.cids);
+    put(embedded.toUnicode, `<< /Length ${cmap.length} >>\nstream\n${cmap}\nendstream`);
+    const fontFileHeader = encode(
+        `<< /Length ${font.data.length} /Length1 ${font.data.length} >>\nstream\n`
+    );
+    putBytes(embedded.fontFile, concat(fontFileHeader, font.data, encode("\nendstream")));
+
+    const fontFlags = /(?:Size|AMS|Symbol)/.test(baseName) ? 4 : 32;
+    const metricsScale = 1000 / font.unitsPerEm;
+    put(
+        embedded.descriptor,
+        `<< /Type /FontDescriptor /FontName /${baseName} /Flags ${fontFlags} ` +
+            `/FontBBox [${font.bounds.map((value) => Math.round(value * metricsScale)).join(" ")}] /ItalicAngle 0 ` +
+            `/Ascent ${Math.round(font.ascent * metricsScale)} /Descent ${Math.round(font.descent * metricsScale)} ` +
+            `/CapHeight ${Math.round(font.capHeight * metricsScale)} ` +
+            `/StemV 80 /FontFile2 ${embedded.fontFile} 0 R >>`
+    );
+    const widths = glyphIds.map((glyph) => {
+        const advance = font.advances[glyph] ?? font.unitsPerEm / 2;
+        return Math.round((advance / font.unitsPerEm) * 1000);
+    });
+    put(
+        embedded.descendant,
+        `<< /Type /Font /Subtype /CIDFontType2 /BaseFont /${baseName} ` +
+            `/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> ` +
+            `/FontDescriptor ${embedded.descriptor} 0 R /DW 1000 ` +
+            `/W [1 [${widths.join(" ")}]] /CIDToGIDMap ${embedded.cidMap} 0 R >>`
+    );
+    put(
+        embedded.type0,
+        `<< /Type /Font /Subtype /Type0 /BaseFont /${baseName} /Encoding /Identity-H ` +
+            `/DescendantFonts [${embedded.descendant} 0 R] /ToUnicode ${embedded.toUnicode} 0 R >>`
+    );
+}
+
+function toUnicodeCmap(cids: ReadonlyMap<number, number>): string {
+    const entries = [...cids].map(([codePoint, cid]) => `<${hex4(cid)}> <${utf16Hex(codePoint)}>`);
+    const blocks: string[] = [];
+    for (let index = 0; index < entries.length; index += 100) {
+        const block = entries.slice(index, index + 100);
+        blocks.push(`${block.length} beginbfchar\n${block.join("\n")}\nendbfchar`);
+    }
+    return [
+        "/CIDInit /ProcSet findresource begin",
+        "12 dict begin",
+        "begincmap",
+        "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def",
+        "/CMapName /Adobe-Identity-UCS def",
+        "/CMapType 2 def",
+        "1 begincodespacerange",
+        "<0000> <FFFF>",
+        "endcodespacerange",
+        ...blocks,
+        "endcmap",
+        "CMapName currentdict /CMap defineresource pop",
+        "end",
+        "end"
+    ].join("\n");
+}
+
+function utf16Hex(codePoint: number): string {
+    if (codePoint <= 0xffff) return hex4(codePoint);
+    const value = codePoint - 0x10000;
+    return `${hex4(0xd800 + (value >>> 10))}${hex4(0xdc00 + (value & 0x3ff))}`;
+}
+
+function hex4(value: number): string {
+    return value.toString(16).toUpperCase().padStart(4, "0");
 }
 
 function num(value: number): string {

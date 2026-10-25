@@ -1,4 +1,5 @@
 import type { FontKey } from "./PdfMetrics";
+import { readMathLayout, type MathLayout } from "./MathLayout";
 
 export interface Run {
     readonly text: string;
@@ -6,11 +7,15 @@ export interface Run {
     readonly italic: boolean;
     readonly mono: boolean;
     readonly link?: string | undefined;
+    /** TeX source is emitted as invisible PDF text so formulas remain searchable. */
+    readonly searchableText?: string | undefined;
+    readonly math?: MathLayout | undefined;
 }
 
 export type Block =
     | { readonly kind: "heading"; readonly level: number; readonly runs: readonly Run[] }
     | { readonly kind: "paragraph"; readonly runs: readonly Run[] }
+    | { readonly kind: "math"; readonly math: MathLayout }
     | { readonly kind: "code"; readonly lines: readonly string[] }
     | { readonly kind: "quote"; readonly blocks: readonly Block[] }
     | { readonly kind: "group"; readonly blocks: readonly Block[] }
@@ -42,6 +47,14 @@ export type DrawOp =
           readonly font: FontKey;
           readonly size: number;
           readonly gray: number;
+          readonly renderMode?: "visible" | "invisible" | undefined;
+      }
+    | {
+          readonly kind: "math";
+          readonly x: number;
+          readonly y: number;
+          readonly scale: number;
+          readonly math: MathLayout;
       }
     | {
           readonly kind: "rect";
@@ -96,6 +109,7 @@ export interface LaidOut {
     readonly pages: readonly (readonly DrawOp[])[];
     readonly images: readonly ImageRef[];
     readonly fonts: readonly FontKey[];
+    readonly mathFonts: readonly string[];
 }
 
 const SKIP_TAGS = new Set([
@@ -107,7 +121,6 @@ const SKIP_TAGS = new Set([
     "BUTTON",
     "SELECT",
     "TEXTAREA",
-    "SVG",
     "CANVAS",
     "VIDEO",
     "AUDIO",
@@ -147,7 +160,11 @@ function parseBlock(node: Node): Block | null {
     if (SKIP_TAGS.has(element.tagName) || element.classList.contains("page-spacer")) {
         return null;
     }
-    switch (element.tagName) {
+    if (element.classList.contains("katex-display")) {
+        const math = readMathLayout(element.querySelector<HTMLElement>(".katex") ?? element);
+        if (math !== null) return { kind: "math", math };
+    }
+    switch (element.tagName.toUpperCase()) {
         case "H1":
         case "H2":
         case "H3":
@@ -194,6 +211,8 @@ function parseBlock(node: Node): Block | null {
         }
         case "IMG":
             return imageBlock(element as HTMLImageElement);
+        case "SVG":
+            return svgBlock(element as unknown as SVGSVGElement);
         case "HR":
             return { kind: "rule" };
         default: {
@@ -209,7 +228,7 @@ function parseBlock(node: Node): Block | null {
  * make it up: text, image, text, and so on.
  */
 function parseFlow(element: HTMLElement): Block | null {
-    const images = Array.from(element.querySelectorAll("img"));
+    const images = Array.from(element.querySelectorAll("img, svg"));
     if (images.length === 0) {
         const runs = inlineRuns(element);
         return runs.length === 0 ? null : { kind: "paragraph", runs };
@@ -242,7 +261,8 @@ function parseFlow(element: HTMLElement): Block | null {
             if (SKIP_TAGS.has(childElement.tagName)) {
                 continue;
             }
-            if (childElement.tagName === "IMG") {
+            const tagName = childElement.tagName.toUpperCase();
+            if (tagName === "IMG") {
                 const image = imageBlock(childElement as HTMLImageElement);
                 if (image === null) {
                     continue;
@@ -251,7 +271,15 @@ function parseFlow(element: HTMLElement): Block | null {
                 blocks.push(image);
                 continue;
             }
-            if (childElement.tagName === "BR") {
+            if (tagName === "SVG") {
+                const diagram = svgBlock(childElement as unknown as SVGSVGElement);
+                if (diagram !== null) {
+                    flush();
+                    blocks.push(diagram);
+                }
+                continue;
+            }
+            if (tagName === "BR") {
                 flush();
                 continue;
             }
@@ -312,6 +340,28 @@ function imageBlock(image: HTMLImageElement): Block | null {
         width: image.naturalWidth,
         height: image.naturalHeight
     };
+}
+
+function svgBlock(svg: SVGSVGElement): Block | null {
+    const markup = new XMLSerializer().serializeToString(svg);
+    const src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(markup)}`;
+    const viewBox = svg
+        .getAttribute("viewBox")
+        ?.split(/[\s,]+/)
+        .map(Number);
+    const width = parseSvgLength(svg.getAttribute("width")) ?? viewBox?.[2] ?? 600;
+    const height = parseSvgLength(svg.getAttribute("height")) ?? viewBox?.[3] ?? 360;
+    const embeddedHtml = svg.querySelector("foreignObject") !== null;
+    const alt = embeddedHtml
+        ? "Embedded HTML diagram; see the editor preview."
+        : (svg.getAttribute("aria-label") ?? "Diagram");
+    return { kind: "image", src, alt, width, height };
+}
+
+function parseSvgLength(value: string | null): number | null {
+    if (value === null) return null;
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 function parseTable(element: HTMLElement): Block | null {
@@ -391,6 +441,38 @@ function inlineRuns(root: HTMLElement): Run[] {
                     mono: style.mono,
                     link
                 });
+                continue;
+            }
+            if (element.classList.contains("katex")) {
+                const visible = element.querySelector<HTMLElement>(".katex-html");
+                const annotation = element.querySelector(
+                    "annotation[encoding='application/x-tex']"
+                );
+                const text = (visible?.textContent ?? annotation?.textContent ?? "")
+                    .replace(/[\u200b\u2061\u2062\u2063]/g, "")
+                    .replace(/\s+/g, " ")
+                    .trim();
+                const math = readMathLayout(element);
+                if (math !== null) {
+                    runs.push({
+                        text,
+                        bold: style.bold,
+                        italic: style.italic,
+                        mono: style.mono,
+                        link,
+                        searchableText: math.searchableText,
+                        math
+                    });
+                } else if (text.length > 0) {
+                    runs.push({
+                        text,
+                        bold: style.bold,
+                        italic: style.italic,
+                        mono: style.mono,
+                        link,
+                        searchableText: annotation?.textContent ?? text
+                    });
+                }
                 continue;
             }
             if (isBlockTag(tag)) {
