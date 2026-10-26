@@ -8,10 +8,17 @@ export function hasPandocTex(source: string): boolean {
 }
 
 export function normalizeTexFormula(formula: string): string {
-    return formula
-        .replace(/(?<!\\)\\\\(?=[A-Za-z_^])/g, "\\")
-        .replace(/`+([^`\n]+?)`+\s*\{=tex\}/g, "$1")
-        .replace(/\\([_^])(?=\{|[A-Za-z0-9])/g, "$1");
+    return (
+        formula
+            .replace(/(?<!\\)\\\\(?=[A-Za-z_^])/g, "\\")
+            // Chat transcripts often escape every TeX backslash, including control
+            // symbols such as \, and \|. Normalize those pairs too, while leaving
+            // standalone TeX row breaks (\\ followed by whitespace or a line end)
+            // intact.
+            .replace(/(?<!\\)\\\\(?=[,;:!|%$&{}])/g, "\\")
+            .replace(/`+([^`\n]+?)`+\s*\{=tex\}/g, "$1")
+            .replace(/\\([_^])(?=\{|[A-Za-z0-9])/g, "$1")
+    );
 }
 
 export interface PandocTexSequence {

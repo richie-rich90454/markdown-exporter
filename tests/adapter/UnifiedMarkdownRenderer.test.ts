@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFile } from "node:fs/promises";
 
 import { DirectDomWriter } from "../../src/adapter/renderer/DirectDomWriter";
 import { UnifiedMarkdownRenderer } from "../../src/adapter/renderer/UnifiedMarkdownRenderer";
@@ -344,6 +345,22 @@ describe("UnifiedMarkdownRenderer", () => {
         expect(rendered.content.querySelector("a")?.getAttribute("href")).toBe(
             "https://example.com"
         );
+    });
+
+    it("renders every copied equation in the Chinese-cities calculus sample", async () => {
+        const source = await readFile("e2e/fixtures/chinese-cities-calculus.md", "utf8");
+        const rendered = await createRenderer().render(MarkdownDocument.initial(source));
+        const formulas = Array.from(
+            rendered.content.querySelectorAll(".katex annotation[encoding='application/x-tex']")
+        ).map((annotation) => annotation.textContent);
+
+        expect(rendered.content.querySelectorAll(".katex-display .katex")).toHaveLength(6);
+        expect(rendered.content.querySelectorAll(".katex")).toHaveLength(11);
+        expect(rendered.content.querySelectorAll(".katex-error")).toHaveLength(0);
+        expect(rendered.content.querySelectorAll(".katex-mathml math")).toHaveLength(11);
+        expect(rendered.content.querySelector("table tbody tr")).not.toBeNull();
+        expect(formulas[7]).toBe(" L=\\int_0^{2\\pi}\\|\\mathbf r'(t)\\|\\,dt=2\\pi R. ");
+        expect(formulas[9]).toBe(" P(R)=2\\pi\\int_0^R rD_0e^{-kr}\\,dr. ");
     });
 });
 

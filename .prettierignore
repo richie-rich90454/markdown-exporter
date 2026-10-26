@@ -1,0 +1,2 @@
+# Keep the copied Markdown sample byte-for-byte faithful for rendering regressions.
+e2e/fixtures/chinese-cities-calculus.md
