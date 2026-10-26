@@ -63,6 +63,11 @@ export default defineConfig({
     // fixed base only works for one of the two.
     base: "./",
     plugins: [solid(), cloudflareBeacon(), contentSecurityPolicy()],
+    resolve: {
+        // Mermaid and the editor/Markdown renderer depend on KaTeX through
+        // different package ranges; resolve them to one runtime copy.
+        dedupe: ["katex"]
+    },
     build: {
         target: "es2022"
     },
