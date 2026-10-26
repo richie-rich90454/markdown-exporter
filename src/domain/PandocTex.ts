@@ -1,6 +1,7 @@
 const MATH_DELIMITERS =
-    /(\\\[)([\s\S]*?)(\\\])|(\$\$)([\s\S]*?)(\$\$)|(\\\()([\s\S]*?)(\\\))|(?<!\\)(\$)(?!\$)((?:\\.|[^$\n])+?)(?<!\\)(\$)(?!\$)(?!\d)/g;
-const PANDOC_TEX_SEQUENCE = /(?:`+[^`\n]+?`+\s*\{=tex\}(?:\\[_^](?:\{[^}\n]*\}|[A-Za-z0-9]+))?)+/g;
+    /(?<!\\)(\\{1,2}\[)([\s\S]*?)(?<!\\)(\\{1,2}\])|(\$\$)([\s\S]*?)(\$\$)|(?<!\\)(\\{1,2}\()([\s\S]*?)(?<!\\)(\\{1,2}\))|(?<!\\)(\$)(?!\$)((?:\\.|[^$\n])+?)(?<!\\)(\$)(?!\$)(?!\d)/g;
+const PANDOC_TEX_SEQUENCE =
+    /(?:`+[^`\n]+?`+\s*\{=tex\}(?:\\{1,2}[_^](?:\{[^}\n]*\}|[A-Za-z0-9]+))?)+/g;
 
 export function hasPandocTex(source: string): boolean {
     return /`+[^`\n]+?`+\s*\{=tex\}/.test(source);
@@ -8,8 +9,26 @@ export function hasPandocTex(source: string): boolean {
 
 export function normalizeTexFormula(formula: string): string {
     return formula
+        .replace(/(?<!\\)\\\\(?=[A-Za-z_^])/g, "\\")
         .replace(/`+([^`\n]+?)`+\s*\{=tex\}/g, "$1")
         .replace(/\\([_^])(?=\{|[A-Za-z0-9])/g, "$1");
+}
+
+export interface PandocTexSequence {
+    readonly from: number;
+    readonly to: number;
+    readonly formula: string;
+}
+
+export function findPandocTexSequences(source: string): PandocTexSequence[] {
+    return Array.from(source.matchAll(PANDOC_TEX_SEQUENCE), (match) => {
+        const from = match.index ?? 0;
+        return {
+            from,
+            to: from + match[0].length,
+            formula: normalizeTexFormula(match[0])
+        };
+    });
 }
 
 /**
@@ -81,7 +100,9 @@ function normalizeProse(source: string): string {
             const opening = math[1] ?? math[4] ?? math[7] ?? math[10] ?? "";
             const formula = normalizeTexFormula(math[2] ?? math[5] ?? math[8] ?? math[11] ?? "");
             const closing = math[3] ?? math[6] ?? math[9] ?? math[12] ?? "";
-            parts.push(`${opening}${formula}${closing}`);
+            parts.push(
+                `${normalizeTexDelimiter(opening)}${formula}${normalizeTexDelimiter(closing)}`
+            );
         } else if (match[13] !== undefined) {
             parts.push(`\\(${normalizeTexFormula(token)}\\)`);
         } else {
@@ -92,4 +113,8 @@ function normalizeProse(source: string): string {
 
     parts.push(source.slice(cursor));
     return parts.join("");
+}
+
+function normalizeTexDelimiter(delimiter: string): string {
+    return delimiter.startsWith("\\\\") ? delimiter.slice(1) : delimiter;
 }

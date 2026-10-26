@@ -152,6 +152,68 @@ describe("UnifiedMarkdownRenderer", () => {
         expect(rendered.content.textContent).toContain("R");
     });
 
+    it("recognizes a display equation copied with doubled delimiters", async () => {
+        const slash = "\\\\";
+        const rendered = await createRenderer().render(
+            MarkdownDocument.initial(`${slash}[x + y${slash}]`)
+        );
+
+        expect(rendered.content.querySelectorAll(".katex-display .katex")).toHaveLength(1);
+    });
+
+    it("renders double-escaped math blocks from copied Markdown and preserves their layout", async () => {
+        const slash = "\\\\";
+        const rendered = await createRenderer().render(
+            MarkdownDocument.initial(
+                [
+                    "For vectors (a,b `" +
+                        slash +
+                        "in `{=tex}`" +
+                        slash +
+                        "mathbb{R}`{=tex}" +
+                        slash +
+                        "^n),",
+                    "",
+                    slash +
+                        "[ a `" +
+                        slash +
+                        "cdot `{=tex}b = `" +
+                        slash +
+                        "sum`{=tex}" +
+                        slash +
+                        "_{i=1}" +
+                        slash +
+                        "^{n} a_i b_i. " +
+                        slash +
+                        "]",
+                    "",
+                    slash +
+                        "[ p" +
+                        slash +
+                        "_{t+1}=`" +
+                        slash +
+                        "alpha `{=tex}Pp_t+(1-`" +
+                        slash +
+                        "alpha`{=tex})u. " +
+                        slash +
+                        "]"
+                ].join("\n")
+            )
+        );
+
+        expect(rendered.content.querySelectorAll(".katex-display .katex")).toHaveLength(2);
+        expect(rendered.content.querySelectorAll(".katex-error")).toHaveLength(0);
+        expect(rendered.content.querySelectorAll(".katex-display .katex .katex-html")).toHaveLength(
+            2
+        );
+        expect(rendered.content.textContent).not.toContain("{=tex}");
+        expect(
+            rendered.content.querySelector(
+                ".katex-display annotation[encoding='application/x-tex']"
+            )?.textContent
+        ).toContain("\\cdot");
+    });
+
     it("keeps currency as text and renders Typora chemistry and physics commands", async () => {
         const rendered = await createRenderer().render(
             MarkdownDocument.initial(

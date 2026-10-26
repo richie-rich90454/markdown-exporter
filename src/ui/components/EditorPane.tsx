@@ -26,7 +26,7 @@ import { tags } from "@lezer/highlight";
 
 import type { ApplicationContext } from "../../ApplicationContext";
 import { PHYSICS_MACROS } from "../../domain/KatexMacros";
-import { hasPandocTex, normalizeTexFormula } from "../../domain/PandocTex";
+import { findPandocTexSequences, hasPandocTex, normalizeTexFormula } from "../../domain/PandocTex";
 import type {
     LocalDirectoryHandle,
     LocalFileEntry,
@@ -791,7 +791,7 @@ function findMathRegions(source: string, codeRanges: [number, number][] = []): S
         }
         codeLineFrom = lineTo + 1;
     }
-    const displayMath = /(?<!\\)\\\[([\s\S]+?)(?<!\\)\\\]|(?<!\\)\$\$([\s\S]+?)\$\$/g;
+    const displayMath = /(?<!\\)\\{1,2}\[([\s\S]+?)(?<!\\)\\{1,2}\]|(?<!\\)\$\$([\s\S]+?)\$\$/g;
     for (const match of source.matchAll(displayMath)) {
         const token = match[0];
         const from = match.index ?? 0;
@@ -816,7 +816,8 @@ function findMathRegions(source: string, codeRanges: [number, number][] = []): S
         });
     }
 
-    const inlineMath = /(?<!\\)\\\((.+?)(?<!\\)\\\)|(?<!\\)\$(\S(?:[^$\n]*?\S)?)\$(?!\d)/g;
+    const inlineMath =
+        /(?<!\\)\\{1,2}\((.+?)(?<!\\)\\{1,2}\)|(?<!\\)\$(\S(?:[^$\n]*?\S)?)\$(?!\d)/g;
     let lineFrom = 0;
     for (const line of source.split("\n")) {
         const lineTo = lineFrom + line.length;
@@ -847,11 +848,7 @@ function findMathRegions(source: string, codeRanges: [number, number][] = []): S
         lineFrom = lineTo + 1;
     }
 
-    const pandocTex = /(`+)([^`\n]+?)\1\s*\{=tex\}((?:\\[_^](?:\{[^}\n]*\}|[A-Za-z0-9]+))?)/g;
-    for (const match of source.matchAll(pandocTex)) {
-        const token = match[0];
-        const from = match.index ?? 0;
-        const to = from + token.length;
+    for (const { from, to, formula } of findPandocTexSequences(source)) {
         if (
             overlaps(from, to, codeRanges) ||
             overlaps(from, to, inlineCodeRanges) ||
@@ -866,7 +863,7 @@ function findMathRegions(source: string, codeRanges: [number, number][] = []): S
         regions.push({
             from,
             to,
-            formula: normalizeTexFormula(`${match[2] ?? ""}${match[3] ?? ""}`),
+            formula,
             display: false,
             block: false
         });

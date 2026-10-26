@@ -174,6 +174,78 @@ test("preserves display-mode sum layout in the paginated preview", async ({ page
     expect(new Set(rendered?.limitOffsets.slice(0, 3)).size).toBe(3);
 });
 
+test("renders copied double-escaped TeX consistently in preview and inline mode", async ({
+    page
+}) => {
+    const slash = "\\\\";
+    const source = [
+        "For vectors (a,b `" + slash + "in `{=tex}`" + slash + "mathbb{R}`{=tex}" + slash + "^n),",
+        "",
+        slash +
+            "[ a `" +
+            slash +
+            "cdot `{=tex}b = `" +
+            slash +
+            "sum`{=tex}" +
+            slash +
+            "_{i=1}" +
+            slash +
+            "^{n} a_i b_i. " +
+            slash +
+            "]",
+        "",
+        slash +
+            "[ p" +
+            slash +
+            "_{t+1}=`" +
+            slash +
+            "alpha `{=tex}Pp_t+(1-`" +
+            slash +
+            "alpha`{=tex})u. " +
+            slash +
+            "]"
+    ].join("\n");
+    await page.goto("/");
+    const editor = page.getByLabel("Markdown editor");
+    await editor.fill(source);
+
+    await expect(page.locator(".preview__flow .katex-display .katex")).toHaveCount(2);
+    await expect(page.locator(".preview__flow .katex-error")).toHaveCount(0);
+    await expect(page.locator(".page-math-overlay .katex-display")).toHaveCount(2);
+    const alignment = await page
+        .locator(".page-math-overlay .katex-display")
+        .first()
+        .evaluate((display) => {
+            const math = display.querySelector<HTMLElement>(".katex");
+            const html = math?.querySelector<HTMLElement>(".katex-html");
+            const limitOffsets = Array.from(
+                math?.querySelectorAll<HTMLElement>(
+                    ".op-limits > .vlist-t > .vlist-r > .vlist > span"
+                ) ?? []
+            ).map((row) => row.style.top);
+            return {
+                mathDisplay: math === null ? "missing" : getComputedStyle(math).display,
+                htmlDisplay:
+                    html === null || html === undefined
+                        ? "missing"
+                        : getComputedStyle(html).display,
+                width: math?.getBoundingClientRect().width ?? 0,
+                limitOffsets
+            };
+        });
+    expect(alignment.mathDisplay).toBe("block");
+    expect(alignment.htmlDisplay).toBe("block");
+    expect(alignment.width).toBeGreaterThan(500);
+    expect(alignment.limitOffsets.length).toBeGreaterThanOrEqual(3);
+    expect(new Set(alignment.limitOffsets.slice(0, 3)).size).toBe(3);
+    await page.screenshot({ path: "test-results/copied-tex-preview.png" });
+
+    await page.getByRole("button", { name: "Inline" }).click();
+    await expect(page.locator(".cm-math-display .katex")).toHaveCount(2);
+    await expect(page.locator(".cm-math-inline .katex")).toHaveCount(1);
+    await expect(page.locator(".cm-math-error")).toHaveCount(0);
+});
+
 test("inline mode renders multiline and fenced math without changing source", async ({ page }) => {
     await page.goto("/");
     const source = "\\[\n\\frac{1}{2}\n\\]\n\n```math\n\\sqrt{x}\n```";
