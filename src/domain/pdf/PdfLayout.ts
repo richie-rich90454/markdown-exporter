@@ -200,7 +200,7 @@ function parseBlock(node: Node): Block | null {
                 if (item.tagName !== "LI") {
                     continue;
                 }
-                items.push(parseBlocks(item));
+                items.push(parseListItem(item as HTMLElement));
             }
             return items.length === 0
                 ? null
@@ -227,10 +227,21 @@ function parseBlock(node: Node): Block | null {
  * typeset on a text line here, so the paragraph is broken into the blocks that
  * make it up: text, image, text, and so on.
  */
-function parseFlow(element: HTMLElement): Block | null {
-    const images = Array.from(element.querySelectorAll("img, svg"));
+function parseFlow(
+    element: HTMLElement,
+    nodes: readonly Node[] = Array.from(element.childNodes)
+): Block | null {
+    const images = nodes.flatMap((node) => {
+        if (node.nodeType !== Node.ELEMENT_NODE) return [];
+        const child = node as HTMLElement;
+        const tagName = child.tagName.toUpperCase();
+        return [
+            ...(tagName === "IMG" || tagName === "SVG" ? [child] : []),
+            ...Array.from(child.querySelectorAll("img, svg"))
+        ];
+    });
     if (images.length === 0) {
-        const runs = inlineRuns(element);
+        const runs = inlineRuns(element, nodes);
         return runs.length === 0 ? null : { kind: "paragraph", runs };
     }
 
@@ -245,8 +256,8 @@ function parseFlow(element: HTMLElement): Block | null {
         pending = [];
     };
 
-    const walk = (node: Node): void => {
-        for (const child of Array.from(node.childNodes)) {
+    const walk = (children: readonly Node[]): void => {
+        for (const child of children) {
             if (child.nodeType === Node.TEXT_NODE) {
                 const text = collapse(child.textContent ?? "");
                 if (text.length > 0) {
@@ -300,12 +311,37 @@ function parseFlow(element: HTMLElement): Block | null {
         }
     };
 
-    walk(element);
+    walk(nodes);
     flush();
     if (blocks.length === 0) {
         return null;
     }
     return blocks.length === 1 && blocks[0] !== undefined ? blocks[0] : { kind: "group", blocks };
+}
+
+/** Tight list items contain inline children directly instead of a paragraph wrapper. */
+function parseListItem(item: HTMLElement): Block[] {
+    const blocks: Block[] = [];
+    let inlineNodes: Node[] = [];
+
+    const flushInline = (): void => {
+        if (inlineNodes.length === 0) return;
+        const block = parseFlow(item, inlineNodes);
+        if (block !== null) blocks.push(block);
+        inlineNodes = [];
+    };
+
+    for (const child of Array.from(item.childNodes)) {
+        if (child.nodeType === Node.ELEMENT_NODE && isBlockTag((child as HTMLElement).tagName)) {
+            flushInline();
+            const block = parseBlock(child);
+            if (block !== null) blocks.push(block);
+        } else {
+            inlineNodes.push(child);
+        }
+    }
+    flushInline();
+    return blocks;
 }
 
 function isBlockTag(tag: string): boolean {
@@ -387,9 +423,12 @@ function parseTable(element: HTMLElement): Block | null {
     return { kind: "table", head, body };
 }
 
-function inlineRuns(root: HTMLElement): Run[] {
+function inlineRuns(
+    root: HTMLElement,
+    nodes: readonly Node[] = Array.from(root.childNodes)
+): Run[] {
     const runs: Run[] = [];
-    collect(root, { bold: false, italic: false, mono: false }, undefined);
+    collectNodes(nodes, { bold: false, italic: false, mono: false }, undefined);
     return runs;
 
     function collect(
@@ -397,7 +436,15 @@ function inlineRuns(root: HTMLElement): Run[] {
         style: { bold: boolean; italic: boolean; mono: boolean },
         link: string | undefined
     ): void {
-        for (const child of Array.from(node.childNodes)) {
+        collectNodes(Array.from(node.childNodes), style, link);
+    }
+
+    function collectNodes(
+        children: readonly Node[],
+        style: { bold: boolean; italic: boolean; mono: boolean },
+        link: string | undefined
+    ): void {
+        for (const child of children) {
             if (child.nodeType === Node.TEXT_NODE) {
                 const text = collapse(child.textContent ?? "");
                 if (text.length > 0) {

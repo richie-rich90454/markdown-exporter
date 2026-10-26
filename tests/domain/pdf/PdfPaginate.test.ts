@@ -246,6 +246,26 @@ describe("page geometry", () => {
         expect(marker?.y).toBe(firstLine);
     });
 
+    it("keeps inline math and its MathML fallback inside one tight-list paragraph", () => {
+        const host = document.createElement("div");
+        host.innerHTML =
+            '<ul><li>Fit <span class="katex"><span class="katex-html">x = r</span>' +
+            '<span class="katex-mathml"><math><semantics>' +
+            '<annotation encoding="application/x-tex">x=r</annotation>' +
+            "</semantics></math></span></span></li></ul>";
+        const blocks = parseBlocks(host);
+        const list = blocks[0];
+
+        expect(list?.kind).toBe("list");
+        if (list?.kind !== "list") return;
+        const item = list.items[0] ?? [];
+        expect(item).toHaveLength(1);
+        const paragraph = item[0];
+        expect(paragraph?.kind).toBe("paragraph");
+        if (paragraph?.kind !== "paragraph") return;
+        expect(paragraph.runs.map((run) => run.text).join("")).toBe("Fit x = r");
+    });
+
     it("keeps a long list item's marker on the page where its content starts", () => {
         const paragraphs = repeated(
             80,
