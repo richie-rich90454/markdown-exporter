@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 
 const VALID_PNG =
     "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAaklEQVR4nBWNQREAQQzCkFIpSKmUSEFKpSDlbnlmmEQSIyxWICJOVEjDDB52YMhwQwfJjLFZg4k5UyMts3jZhSXLLV2kJ8APvgUO+ucUJjhsHk640PyNYw4fe++c447e3yhTXLZPkXKl5QPGe1gBrfdehAAAAABJRU5ErkJggg==";
@@ -105,6 +106,38 @@ test("offline HTML math embeds only the font faces it uses", async ({ page }) =>
     await offlinePage.close();
 });
 
+test("exports all equations from the copied Chinese-cities sample to PDF and offline HTML", async ({
+    page
+}) => {
+    const source = await readFile(
+        new URL("./fixtures/chinese-cities-calculus.md", import.meta.url),
+        "utf8"
+    );
+    await page.goto("/");
+    await page.getByLabel("Markdown editor").fill(source);
+    await expect(page.locator(".preview__flow .katex-display .katex")).toHaveCount(6);
+
+    const pdf = await exportPdf(page, "2-best-chinese-cases-to-consider.pdf");
+    expect(pdf).toContain("/Subtype /Type0");
+    expect(pdf).toContain("/BaseFont /STSong-Light");
+    expect(pdf).toContain("<4E0A6D775E027EDF8BA15C40> Tj");
+    expect(pdf).toContain("/ToUnicode");
+    expect(pdf).toContain("L=");
+
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Choose export format" }).click();
+    await page.getByRole("menuitem", { name: "HTML" }).click();
+    const file = await download;
+    const stream = await file.createReadStream();
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) chunks.push(chunk as Buffer);
+    const html = Buffer.concat(chunks).toString("utf8");
+
+    expect([...html.matchAll(/class="katex-display"/g)]).toHaveLength(6);
+    expect([...html.matchAll(/encoding="application\/x-tex"/g)]).toHaveLength(11);
+    expect(html).toContain("上海市统计局");
+});
+
 function pagesOf(pdf: string): string[] {
     return [...pdf.matchAll(/stream\n([\s\S]*?)\nendstream/g)]
         .map((match) => match[1] ?? "")
@@ -170,7 +203,7 @@ test("exports every block type of a real document", async ({ page }) => {
     const pdf = await exportPdf(page);
     const pages = pagesOf(pdf);
 
-    expect(pdf.startsWith("%PDF-1.4")).toBe(true);
+    expect(pdf.startsWith("%PDF-1.6")).toBe(true);
     expect(pdf.trimEnd().endsWith("%%EOF")).toBe(true);
     expect(pages.length).toBeGreaterThan(3);
 

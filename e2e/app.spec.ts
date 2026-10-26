@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { expect, test, type Page } from "@playwright/test";
@@ -754,7 +754,7 @@ test("exports a real PDF file", async ({ page }) => {
         chunks.push(chunk as Buffer);
     }
     const bytes = Buffer.concat(chunks);
-    expect(bytes.subarray(0, 8).toString("latin1")).toBe("%PDF-1.4");
+    expect(bytes.subarray(0, 8).toString("latin1")).toBe("%PDF-1.6");
     expect(bytes.toString("latin1").trimEnd().endsWith("%%EOF")).toBe(true);
     await expect(page.locator(".statusbar")).toContainText("Saved PDF");
 });
@@ -866,3 +866,92 @@ async function scan(page: Page): Promise<string[]> {
         );
     });
 }
+
+test("renders the Chinese-cities calculus sample without losing math or table layout", async ({
+    page
+}) => {
+    const source = await readFile(
+        new URL("./fixtures/chinese-cities-calculus.md", import.meta.url),
+        "utf8"
+    );
+    await page.goto("/");
+    await page.getByLabel("Markdown editor").fill(source);
+
+    const preview = page.locator(".preview__flow");
+    await expect(preview.locator("h2")).toHaveCount(6);
+    await expect(preview.locator("table th")).toHaveCount(3);
+    await expect(preview.locator("table tbody tr")).toHaveCount(5);
+    await expect(preview.locator(".katex-display .katex")).toHaveCount(6);
+    await expect(preview.locator(".katex")).toHaveCount(11);
+    await expect(preview.locator(".katex-error")).toHaveCount(0);
+    await expect(preview.locator(".katex-mathml math")).toHaveCount(11);
+    await expect(preview).toContainText("上海市统计局");
+    const annotations = await preview
+        .locator(".katex annotation[encoding='application/x-tex']")
+        .allTextContents();
+    expect(annotations[7]).toBe(" L=\\int_0^{2\\pi}\\|\\mathbf r'(t)\\|\\,dt=2\\pi R. ");
+    expect(annotations[9]).toBe(" P(R)=2\\pi\\int_0^R rD_0e^{-kr}\\,dr. ");
+    const frames = page.locator(".page-frame");
+    const paginatedMath: string[] = [];
+    for (let index = 0; index < (await frames.count()); index += 1) {
+        const frame = frames.nth(index);
+        await frame.scrollIntoViewIfNeeded();
+        await frame.locator(".page-canvas").waitFor();
+        const pageMath = await frame
+            .locator(".page-math-overlay annotation[encoding='application/x-tex']")
+            .allTextContents();
+        paginatedMath.push(...pageMath);
+        if (pageMath.length === 0) continue;
+        await frame.screenshot({
+            path: join(
+                process.cwd(),
+                "test-results",
+                `chinese-cities-preview-page-${index + 1}.png`
+            )
+        });
+    }
+    expect(paginatedMath).toHaveLength(11);
+    expect(paginatedMath.filter((tex) => tex.includes("x=r"))).toHaveLength(1);
+    expect(paginatedMath.filter((tex) => tex.includes("y=\\ln D"))).toHaveLength(1);
+
+    await page.getByRole("button", { name: "Inline" }).click();
+    const scroller = page.locator(".cm-scroller");
+    const { scrollHeight, clientHeight } = await scroller.evaluate((element) => ({
+        scrollHeight: element.scrollHeight,
+        clientHeight: element.clientHeight
+    }));
+    const displayFormulas = new Set<string>();
+    let maxInlineFormulas = 0;
+    const step = Math.max(100, Math.floor(clientHeight * 0.75));
+    for (let top = 0; top <= scrollHeight; top += step) {
+        await scroller.evaluate((element, scrollTop) => {
+            element.scrollTop = scrollTop;
+        }, top);
+        await page.waitForTimeout(40);
+        const readFormulaLabels = async (selector: string): Promise<string[]> =>
+            page
+                .locator(selector)
+                .evaluateAll((nodes) =>
+                    nodes
+                        .filter((node) => node.querySelector(".katex") !== null)
+                        .map((node) => node.getAttribute("aria-label") ?? "")
+                );
+        for (const formula of await readFormulaLabels(".cm-math-display"))
+            displayFormulas.add(formula);
+        maxInlineFormulas = Math.max(
+            maxInlineFormulas,
+            (await readFormulaLabels(".cm-math-inline")).length
+        );
+    }
+    expect([...displayFormulas]).toHaveLength(6);
+    expect(maxInlineFormulas).toBe(5);
+    await expect(page.locator(".cm-math-error")).toHaveCount(0);
+    await page.getByRole("button", { name: "Source" }).click();
+    const editor = page.getByLabel("Markdown editor");
+    await editor.press("Control+f");
+    const search = page.locator(".cm-search input").first();
+    await search.fill("D(r)");
+    await search.press("Enter");
+    await editor.press("Escape");
+    await expect(editor).toContainText("\\\\[");
+});

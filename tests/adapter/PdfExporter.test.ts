@@ -55,7 +55,7 @@ describe("PdfExporter", () => {
 
         expect(saver.blobs[0]?.name).toBe("notes.pdf");
         expect(saver.blobs[0]?.blob.type).toBe("application/pdf");
-        expect(bytes.startsWith("%PDF-1.4")).toBe(true);
+        expect(bytes.startsWith("%PDF-1.6")).toBe(true);
         expect(bytes.trimEnd().endsWith("%%EOF")).toBe(true);
         expect(bytes).toContain("/Title (Notes)");
         expect(bytes).toContain("(Body text.) Tj");
@@ -74,6 +74,31 @@ describe("PdfExporter", () => {
         expect(bytes).toContain("( + x2) Tj");
         expect(bytes).toContain("3 Tr");
         expect(bytes).toContain("(\\\\frac{1}{2} + x^2) Tj");
+    });
+
+    it("writes selectable Chinese text with a Unicode CJK font mapping", async () => {
+        const bytes = await pdfBytes(build("<p>上海市统计局</p>"), new MemorySaver());
+
+        expect(bytes).toContain("/BaseFont /STSong-Light");
+        expect(bytes).toContain("/Encoding /UniGB-UTF16-H");
+        expect(bytes).toContain("<4E0A6D775E027EDF8BA15C40> Tj");
+        expect(bytes).toContain("<4E0A> <4E0A>");
+        expect(bytes).toContain("/Ordering (GB1)");
+    });
+
+    it("selects CJK fonts per script in mixed Chinese, Japanese, Korean, and Traditional text", async () => {
+        const bytes = await pdfBytes(
+            build("<p>上海市</p><p>東京と日本語</p><p>한국어</p><p>臺灣</p>"),
+            new MemorySaver()
+        );
+
+        expect(bytes).toContain("/Encoding /UniJIS-UTF16-H");
+        expect(bytes).toContain("/Encoding /UniKS-UTF16-H");
+        expect(bytes).toContain("/Encoding /UniCNS-UTF16-H");
+        expect(bytes).toContain("/BaseFont /STSong-Light");
+        expect(bytes).toContain("/BaseFont /HeiseiMin-W3");
+        expect(bytes).toContain("/BaseFont /HYSMyeongJo-Medium");
+        expect(bytes).toContain("/BaseFont /MHei-Medium");
     });
 
     it("lays out pages and numbers them", async () => {

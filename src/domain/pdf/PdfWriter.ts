@@ -1,4 +1,4 @@
-import { baseFont } from "./PdfMetrics";
+import { baseFont, isCjkCodePoint, textWidth } from "./PdfMetrics";
 import type { LaidOut, PdfImageSource } from "./PdfLayout";
 import { pageHeightPt, pageWidthPt, type PageSetup } from "../PageSetup";
 import { parseTrueType, type TrueTypeFont } from "./TrueTypeFont";
@@ -16,6 +16,58 @@ interface EmbeddedMathFont {
     readonly toUnicode: number;
     readonly codePoints: readonly number[];
 }
+
+interface CjkFontConfiguration {
+    readonly id: "simplifiedChinese" | "traditionalChinese" | "japanese" | "korean";
+    readonly baseName: string;
+    readonly encoding: string;
+    readonly ordering: string;
+    readonly supplement: number;
+    readonly resource: string;
+}
+
+interface EmbeddedCjkFont extends CjkFontConfiguration {
+    readonly type0: number;
+    readonly descendant: number;
+    readonly descriptor: number;
+    readonly toUnicode: number;
+    readonly codePoints: readonly number[];
+}
+
+const CJK_FONT_CONFIGURATIONS: readonly CjkFontConfiguration[] = [
+    {
+        id: "simplifiedChinese",
+        baseName: "STSong-Light",
+        encoding: "UniGB-UTF16-H",
+        ordering: "GB1",
+        supplement: 4,
+        resource: "/CJK-GB"
+    },
+    {
+        id: "traditionalChinese",
+        baseName: "MHei-Medium",
+        encoding: "UniCNS-UTF16-H",
+        ordering: "CNS1",
+        supplement: 4,
+        resource: "/CJK-CNS"
+    },
+    {
+        id: "japanese",
+        baseName: "HeiseiMin-W3",
+        encoding: "UniJIS-UTF16-H",
+        ordering: "Japan1",
+        supplement: 5,
+        resource: "/CJK-JIS"
+    },
+    {
+        id: "korean",
+        baseName: "HYSMyeongJo-Medium",
+        encoding: "UniKS-UTF16-H",
+        ordering: "Korea1",
+        supplement: 2,
+        resource: "/CJK-KS"
+    }
+];
 
 // Windows ANSI beyond ASCII, which is what the base 14 fonts encode through
 // /WinAnsiEncoding.
@@ -87,6 +139,7 @@ export function writePdf(
     const fontIndexes = fontBases.map(() => reserve());
     const imageIndexes = images.map(() => reserve());
     const mathFonts = prepareMathFonts(layout, katexFontData, reserve);
+    const cjkFonts = prepareCjkFonts(layout, reserve);
 
     pageIndexes.forEach((pageIndex, order) => {
         const ops = layout.pages[order] ?? [];
@@ -100,10 +153,13 @@ export function writePdf(
                         fontIds.get(
                             `${op.font.family}|${op.font.bold}|${op.font.italic}|${op.font.mono}`
                         ) ?? 1;
-                    const renderMode = op.renderMode === "invisible" ? "3 Tr " : "";
-                    const resetRenderMode = op.renderMode === "invisible" ? " 0 Tr" : "";
+                    const hasCjk = [...op.text].some((character) =>
+                        isCjkCodePoint(character.codePointAt(0) ?? 0)
+                    );
                     stream.push(
-                        `${shade(op.gray)} BT /F${id} ${num(op.size)} Tf ${renderMode}${num(op.x)} ${num(op.y)} Td ${literal(op.text)} Tj${resetRenderMode} ET`
+                        ...(!hasCjk
+                            ? [writeText(op, `/F${id}`, op.x, op.text)]
+                            : writeTextWithCjk(op, id, cjkFonts))
                     );
                     break;
                 }
@@ -170,6 +226,7 @@ export function writePdf(
         const mathFontDict = mathFonts
             .map((font) => `${font.resource} ${font.type0} 0 R`)
             .join(" ");
+        const cjkFontDict = cjkFonts.map((font) => `${font.resource} ${font.type0} 0 R`).join(" ");
         const imageDict = imageIndexes
             .map((imageIndex, index) =>
                 images[index] === undefined || images[index] === null
@@ -178,7 +235,7 @@ export function writePdf(
             )
             .filter((entry) => entry.length > 0)
             .join(" ");
-        const resources = `<< /Font << ${fontDict} ${mathFontDict} >> /XObject << ${imageDict} >> >>`;
+        const resources = `<< /Font << ${fontDict} ${mathFontDict} ${cjkFontDict} >> /XObject << ${imageDict} >> >>`;
         const annots = links.length > 0 ? ` /Annots [${links.join(" ")}]` : "";
         put(
             pageIndex,
@@ -195,6 +252,7 @@ export function writePdf(
     });
 
     for (const font of mathFonts) writeEmbeddedMathFont(font, put, putBytes);
+    for (const font of cjkFonts) writeCjkFont(font, put);
 
     imageIndexes.forEach((imageIndex, index) => {
         const image = images[index];
@@ -227,7 +285,7 @@ export function writePdf(
     const infoIndex = reserve();
     put(infoIndex, `<< /Title ${literal(title)} /Producer ${literal("Markdown Exporter")} >>`);
 
-    let output = "%PDF-1.4\n";
+    let output = "%PDF-1.6\n";
     const offsets: number[] = [];
     for (let index = 0; index < objects.length; index += 1) {
         const body = objects[index] ?? new Uint8Array();
@@ -293,6 +351,186 @@ function prepareMathFonts(
         });
     }
     return fonts;
+}
+
+function prepareCjkFonts(layout: LaidOut, reserve: () => number): EmbeddedCjkFont[] {
+    const codePoints = new Map<CjkFontConfiguration["id"], Set<number>>();
+    for (const configuration of CJK_FONT_CONFIGURATIONS) {
+        codePoints.set(configuration.id, new Set());
+    }
+    for (const page of layout.pages) {
+        for (const op of page) {
+            if (op.kind !== "text") continue;
+            const defaultConfiguration = cjkConfigurationForText(op.text);
+            for (const character of op.text) {
+                const point = character.codePointAt(0);
+                if (point === undefined) continue;
+                const configuration = cjkConfigurationForCodePoint(point, defaultConfiguration);
+                if (configuration === undefined) continue;
+                codePoints.get(configuration.id)?.add(point);
+            }
+        }
+    }
+
+    return CJK_FONT_CONFIGURATIONS.flatMap((configuration) => {
+        const points = codePoints.get(configuration.id);
+        if (points === undefined || points.size === 0) return [];
+        return [
+            {
+                ...configuration,
+                type0: reserve(),
+                descendant: reserve(),
+                descriptor: reserve(),
+                toUnicode: reserve(),
+                codePoints: [...points].sort((left, right) => left - right)
+            }
+        ];
+    });
+}
+
+function cjkConfigurationForText(text: string): CjkFontConfiguration | undefined {
+    const hasCjk = [...text].some((character) => isCjkCodePoint(character.codePointAt(0) ?? 0));
+    if (!hasCjk) return undefined;
+
+    if (/[\u3040-\u30ff\u31f0-\u31ff]/u.test(text)) {
+        return CJK_FONT_CONFIGURATIONS.find((font) => font.id === "japanese");
+    }
+    if (/[\u3100-\u312f]/u.test(text) || /[繁體臺灣與國學為這個資訊電腦網路發展]/u.test(text)) {
+        return CJK_FONT_CONFIGURATIONS.find((font) => font.id === "traditionalChinese");
+    }
+    if (/[\uac00-\ud7af]/u.test(text)) {
+        return CJK_FONT_CONFIGURATIONS.find((font) => font.id === "korean");
+    }
+    return CJK_FONT_CONFIGURATIONS.find((font) => font.id === "simplifiedChinese");
+}
+
+function cjkConfigurationForCodePoint(
+    codePoint: number,
+    defaultConfiguration: CjkFontConfiguration | undefined
+): CjkFontConfiguration | undefined {
+    if (!isCjkCodePoint(codePoint)) return undefined;
+    if (codePoint >= 0xac00 && codePoint <= 0xd7af) {
+        return CJK_FONT_CONFIGURATIONS.find((font) => font.id === "korean");
+    }
+    if (
+        (codePoint >= 0x3040 && codePoint <= 0x30ff) ||
+        (codePoint >= 0x31f0 && codePoint <= 0x31ff)
+    ) {
+        return CJK_FONT_CONFIGURATIONS.find((font) => font.id === "japanese");
+    }
+    if (codePoint >= 0x3100 && codePoint <= 0x312f) {
+        return CJK_FONT_CONFIGURATIONS.find((font) => font.id === "traditionalChinese");
+    }
+    if (/[繁體臺灣與國學為這個資訊電腦網路發展]/u.test(String.fromCodePoint(codePoint))) {
+        return CJK_FONT_CONFIGURATIONS.find((font) => font.id === "traditionalChinese");
+    }
+    return defaultConfiguration;
+}
+
+function writeCjkFont(embedded: EmbeddedCjkFont, put: (index: number, body: string) => void): void {
+    const { baseName, ordering, supplement } = embedded;
+    const cmap = toCjkUnicodeCmap(embedded.codePoints);
+    put(embedded.toUnicode, `<< /Length ${cmap.length} >>\nstream\n${cmap}\nendstream`);
+    put(
+        embedded.descriptor,
+        `<< /Type /FontDescriptor /FontName /${baseName} /Flags 4 ` +
+            `/FontBBox [0 -250 1000 880] /ItalicAngle 0 /Ascent 880 /Descent -120 ` +
+            `/CapHeight 700 /StemV 80 >>`
+    );
+    put(
+        embedded.descendant,
+        `<< /Type /Font /Subtype /CIDFontType0 /BaseFont /${baseName} ` +
+            `/CIDSystemInfo << /Registry (Adobe) /Ordering (${ordering}) /Supplement ${supplement} >> ` +
+            `/FontDescriptor ${embedded.descriptor} 0 R /DW 1000 >>`
+    );
+    put(
+        embedded.type0,
+        `<< /Type /Font /Subtype /Type0 /BaseFont /${baseName} /Encoding /${embedded.encoding} ` +
+            `/DescendantFonts [${embedded.descendant} 0 R] /ToUnicode ${embedded.toUnicode} 0 R >>`
+    );
+}
+
+function toCjkUnicodeCmap(codePoints: readonly number[]): string {
+    const entries = codePoints.map((point) => `<${utf16Hex(point)}> <${utf16Hex(point)}>`);
+    const blocks: string[] = [];
+    for (let index = 0; index < entries.length; index += 100) {
+        const block = entries.slice(index, index + 100);
+        blocks.push(`${block.length} beginbfchar\n${block.join("\n")}\nendbfchar`);
+    }
+    return [
+        "/CIDInit /ProcSet findresource begin",
+        "12 dict begin",
+        "begincmap",
+        "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def",
+        "/CMapName /Adobe-Identity-UCS def",
+        "/CMapType 2 def",
+        "2 begincodespacerange",
+        "<0000> <FFFF>",
+        "<D800DC00> <DBFFDFFF>",
+        "endcodespacerange",
+        ...blocks,
+        "endcmap",
+        "CMapName currentdict /CMap defineresource pop",
+        "end",
+        "end"
+    ].join("\n");
+}
+
+function writeText(
+    op: Extract<LaidOut["pages"][number][number], { kind: "text" }>,
+    fontResource: string,
+    x: number,
+    text: string
+): string {
+    const renderMode = op.renderMode === "invisible" ? "3 Tr " : "";
+    const resetRenderMode = op.renderMode === "invisible" ? " 0 Tr" : "";
+    return `${shade(op.gray)} BT ${fontResource} ${num(op.size)} Tf ${renderMode}${num(x)} ${num(op.y)} Td ${literal(text)} Tj${resetRenderMode} ET`;
+}
+
+function writeTextWithCjk(
+    op: Extract<LaidOut["pages"][number][number], { kind: "text" }>,
+    baseFontId: number,
+    cjkFonts: readonly EmbeddedCjkFont[]
+): string[] {
+    const defaultConfiguration = cjkConfigurationForText(op.text);
+    const segments: { text: string; configuration: CjkFontConfiguration | undefined }[] = [];
+    for (const character of op.text) {
+        const configuration = cjkConfigurationForCodePoint(
+            character.codePointAt(0) ?? 0,
+            defaultConfiguration
+        );
+        const previous = segments[segments.length - 1];
+        if (previous !== undefined && previous.configuration?.id === configuration?.id) {
+            previous.text += character;
+        } else {
+            segments.push({ text: character, configuration });
+        }
+    }
+
+    let x = op.x;
+    return segments.map((segment) => {
+        const cjkFont = cjkFonts.find((font) => font.id === segment.configuration?.id);
+        const command =
+            cjkFont !== undefined
+                ? writeCjkText(op, cjkFont.resource, x, segment.text)
+                : writeText(op, `/F${baseFontId}`, x, segment.text);
+        x += textWidth(segment.text, op.font, op.size);
+        return command;
+    });
+}
+
+function writeCjkText(
+    op: Extract<LaidOut["pages"][number][number], { kind: "text" }>,
+    fontResource: string,
+    x: number,
+    text: string
+): string {
+    const renderMode = op.renderMode === "invisible" ? "3 Tr " : "";
+    const resetRenderMode = op.renderMode === "invisible" ? " 0 Tr" : "";
+    const unicodeHex = [...text]
+        .map((character) => utf16Hex(character.codePointAt(0) ?? 0))
+        .join("");
+    return `${shade(op.gray)} BT ${fontResource} ${num(op.size)} Tf ${renderMode}${num(x)} ${num(op.y)} Td <${unicodeHex}> Tj${resetRenderMode} ET`;
 }
 
 function writeEmbeddedMathFont(

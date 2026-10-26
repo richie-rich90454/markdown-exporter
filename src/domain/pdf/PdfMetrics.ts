@@ -88,8 +88,25 @@ function tableWidth(text: string, key: FontKey): number {
     const table = TABLES[key.mono ? "mono" : key.family];
     let total = 0;
     for (const char of text) {
-        const index = (char.codePointAt(0) ?? 63) - 32;
-        total += (table[index] ?? 500) * (key.bold ? 1.08 : key.italic ? 0.98 : 1);
+        const codePoint = char.codePointAt(0) ?? 63;
+        const index = codePoint - 32;
+        const advance = isCjkCodePoint(codePoint) ? 1000 : (table[index] ?? 500);
+        total += advance * (key.bold ? 1.08 : key.italic ? 0.98 : 1);
     }
     return total;
+}
+
+export function isCjkCodePoint(codePoint: number): boolean {
+    return (
+        (codePoint >= 0x2e80 && codePoint <= 0x2fff) ||
+        (codePoint >= 0x3000 && codePoint <= 0x30ff) ||
+        (codePoint >= 0x3100 && codePoint <= 0x31ff) ||
+        (codePoint >= 0x3400 && codePoint <= 0x4dbf) ||
+        (codePoint >= 0x4e00 && codePoint <= 0x9fff) ||
+        (codePoint >= 0xac00 && codePoint <= 0xd7af) ||
+        (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+        (codePoint >= 0xfe30 && codePoint <= 0xfe4f) ||
+        (codePoint >= 0xff00 && codePoint <= 0xffef) ||
+        (codePoint >= 0x20000 && codePoint <= 0x2fa1f)
+    );
 }
