@@ -7,6 +7,7 @@ import {
     RangeSet,
     StateEffect,
     StateField,
+    Transaction,
     type Extension,
     type Range
 } from "@codemirror/state";
@@ -21,10 +22,11 @@ import {
 } from "@codemirror/view";
 import { searchKeymap } from "@codemirror/search";
 import type katex from "katex";
-import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Show, createEffect, createSignal, lazy, onCleanup, onMount } from "solid-js";
 import { tags } from "@lezer/highlight";
 
 import type { ApplicationContext } from "../../ApplicationContext";
+import type { BookProject } from "../../domain/BookProject";
 import { PHYSICS_MACROS } from "../../domain/KatexMacros";
 import { findPandocTexSequences, hasPandocTex, normalizeTexFormula } from "../../domain/PandocTex";
 import type {
@@ -33,13 +35,18 @@ import type {
     LocalFileHandle
 } from "../../port/LocalDocuments";
 
-type EditorMode = "source" | "inline";
+type EditorMode = "source" | "inline" | "rich";
 type KatexApi = typeof katex;
+
+const RichMarkdownEditor = lazy(() =>
+    import("./RichMarkdownEditor").then(({ RichMarkdownEditor: component }) => ({ default: component }))
+);
 
 export interface EditorPaneProps {
     context: ApplicationContext;
     onInput: (value: string) => void;
-    editorRef: (view: EditorView | undefined) => void;
+    onHistoryStep: () => void;
+    editorRef: (focus: (() => void) | undefined) => void;
 }
 
 let katexApi: KatexApi | undefined;
@@ -75,7 +82,7 @@ const editorHighlightStyle = HighlightStyle.define([
 ]);
 
 export function EditorPane(props: EditorPaneProps) {
-    const [mode, setMode] = createSignal<EditorMode>("source");
+    const [mode, setMode] = createSignal<EditorMode>("rich");
     const [fileName, setFileName] = createSignal("untitled.md");
     const [fileStatus, setFileStatus] = createSignal("Draft recovery stays on this device.");
     const [folderName, setFolderName] = createSignal("");
@@ -88,11 +95,33 @@ export function EditorPane(props: EditorPaneProps) {
     const inlineCompartment = new Compartment();
     let activeFileHandle: LocalFileHandle | undefined;
     let activeDirectoryHandle: LocalDirectoryHandle | undefined;
+    let activeBookHandle: LocalFileHandle | undefined;
+    let activeBookDirectoryHandle: LocalDirectoryHandle | undefined;
+    let activeBookName: string | undefined;
     let recoveryTimer: ReturnType<typeof setTimeout> | undefined;
     let destroyed = false;
+    let syncingFromStore = false;
+    let editorModeWasExplicitlySelected = false;
+    let richFocus: (() => void) | undefined;
+    let richSource: (() => string) | undefined;
+    let richNavigate: ((heading: string) => void) | undefined;
+    const [bookQuery, setBookQuery] = createSignal("");
+    const [replaceText, setReplaceText] = createSignal("");
+    const [replaceWith, setReplaceWith] = createSignal("");
 
     onMount(() => {
         void initializeEditor();
+    });
+
+    createEffect(() => {
+        const source = props.context.editorStore.current().source;
+        if (view === undefined || view.state.doc.toString() === source) return;
+        syncingFromStore = true;
+        view.dispatch({
+            changes: { from: 0, to: view.state.doc.length, insert: source },
+            annotations: Transaction.addToHistory.of(false)
+        });
+        syncingFromStore = false;
     });
 
     onCleanup(() => {
@@ -109,9 +138,22 @@ export function EditorPane(props: EditorPaneProps) {
         if (initial.length === 0) {
             const recovered = await props.context.draftRecovery.load();
             if (recovered !== null && recovered.source.length > 0) {
-                initial = recovered.source;
+                if (recovered.bookProject !== undefined) {
+                    props.context.bookProjectStore.open(recovered.bookProject, recovered.activeEntryId);
+                    const active = props.context.bookProjectStore.select(props.context.bookProjectStore.activeEntryId());
+                    initial = active.source;
+                    setFileName(active.entry.path);
+                    setFolderName(recovered.bookProject.manifest.metadata.title);
+                    setFolderOpen(true);
+                } else {
+                    initial = recovered.source;
+                    props.context.bookProjectStore.resetToMarkdown(initial, "Recovered draft");
+                }
+                props.context.editorStore.reset(initial);
                 props.onInput(initial);
-                setFileStatus("Recovered a local draft from this device.");
+                setFileStatus(recovered.bookProject === undefined
+                    ? "Recovered a local draft from this device."
+                    : "Recovered the book project from this device.");
             }
         }
         if (destroyed || editorHost === undefined) return;
@@ -119,12 +161,21 @@ export function EditorPane(props: EditorPaneProps) {
             state: EditorState.create({ doc: initial, extensions: editorExtensions(mode()) }),
             parent: editorHost
         });
-        view.contentDOM.id = "editor";
-        view.contentDOM.setAttribute("aria-label", "Markdown editor");
+        view.contentDOM.id = mode() === "rich" ? "source-editor" : "editor";
+        view.contentDOM.setAttribute("aria-label", mode() === "rich" ? "Markdown source" : "Markdown editor");
         view.contentDOM.setAttribute("spellcheck", "false");
         activeEditorViews.add(view);
-        props.editorRef(view);
-        if (mayTakeInitialFocus && document.activeElement === document.body) view.focus();
+        props.editorRef(() => {
+            if (mode() === "rich") richFocus?.();
+            else view?.focus();
+        });
+        if (
+            mode() !== "rich" &&
+            (editorModeWasExplicitlySelected ||
+                (mayTakeInitialFocus && document.activeElement === document.body))
+        ) {
+            view.focus();
+        }
         if (mode() === "inline" && containsMath(initial)) void loadKatex(view);
     }
 
@@ -141,6 +192,18 @@ export function EditorPane(props: EditorPaneProps) {
                         return true;
                     }
                 },
+                {
+                    key: "Mod-z",
+                    run: () => performHistoryStep(false)
+                },
+                {
+                    key: "Shift-Mod-z",
+                    run: () => performHistoryStep(true)
+                },
+                {
+                    key: "Mod-y",
+                    run: () => performHistoryStep(true)
+                },
                 ...defaultKeymap,
                 ...historyKeymap,
                 ...searchKeymap
@@ -151,6 +214,7 @@ export function EditorPane(props: EditorPaneProps) {
             ),
             EditorView.updateListener.of((update) => {
                 if (!update.docChanged) return;
+                if (syncingFromStore) return;
                 const source = update.state.doc.toString();
                 props.onInput(source);
                 scheduleRecovery(source);
@@ -181,7 +245,17 @@ export function EditorPane(props: EditorPaneProps) {
     function scheduleRecovery(source: string): void {
         if (recoveryTimer !== undefined) clearTimeout(recoveryTimer);
         recoveryTimer = setTimeout(() => {
-            void props.context.draftRecovery.save(source).then(
+            const project = props.context.bookProjectStore.current();
+            const isBookProject =
+                project.manifest.entries.length > 1 ||
+                activeBookHandle !== undefined ||
+                activeBookDirectoryHandle !== undefined ||
+                activeBookName !== undefined;
+            void props.context.draftRecovery.save(
+                source,
+                isBookProject ? project : undefined,
+                isBookProject ? props.context.bookProjectStore.activeEntryId() : undefined
+            ).then(
                 () => setFileStatus("Draft recovered automatically on this device."),
                 () =>
                     setFileStatus(
@@ -193,7 +267,13 @@ export function EditorPane(props: EditorPaneProps) {
 
     function replaceDocument(source: string, name: string, handle?: LocalFileHandle): void {
         activeFileHandle = handle;
+        activeBookHandle = undefined;
+        activeBookDirectoryHandle = undefined;
+        activeBookName = undefined;
+        activeDirectoryHandle = undefined;
         setFileName(name);
+        props.context.bookProjectStore.resetToMarkdown(source, removeExtension(name));
+        props.context.editorStore.reset(source);
         props.onInput(source);
         scheduleRecovery(source);
         if (view !== undefined) {
@@ -213,6 +293,12 @@ export function EditorPane(props: EditorPaneProps) {
                 return;
             }
             const file = await handle.getFile();
+            if (/\.mdbook$/i.test(file.name)) {
+                const project = await props.context.bookProjectFiles.readArchive(new Uint8Array(await file.arrayBuffer()));
+                openBookProject(project, file.name, handle);
+                setFileStatus(`Opened ${file.name}.`);
+                return;
+            }
             const source = await file.text();
             activeDirectoryHandle = undefined;
             replaceDocument(source, file.name, handle);
@@ -230,9 +316,18 @@ export function EditorPane(props: EditorPaneProps) {
                 openFolderInput?.click();
                 return;
             }
+            const project = await props.context.bookProjectFiles.readFolder(directory);
+            if (project !== null) {
+                openBookProject(project, undefined, undefined, directory);
+                setFileStatus(`Opened the ${directory.name} book folder.`);
+                return;
+            }
             const files = await props.context.localDocuments.listMarkdownFiles(directory);
             activeFileHandle = undefined;
             activeDirectoryHandle = directory;
+            activeBookHandle = undefined;
+            activeBookDirectoryHandle = undefined;
+            activeBookName = undefined;
             setFolderName(directory.name);
             setFolderFiles(files);
             setFolderOpen(true);
@@ -244,8 +339,29 @@ export function EditorPane(props: EditorPaneProps) {
     }
 
     async function saveCurrent(): Promise<void> {
-        const source = view?.state.doc.toString() ?? props.context.editorStore.current().source;
+        const source = currentSource();
+        props.onInput(source);
         try {
+            if (activeBookDirectoryHandle !== undefined) {
+                props.context.bookProjectStore.updateActive(source);
+                await props.context.bookProjectFiles.writeFolder(activeBookDirectoryHandle, props.context.bookProjectStore.current());
+                setFileStatus(`Saved the ${folderName()} book folder.`);
+                return;
+            }
+            if (activeBookHandle !== undefined) {
+                props.context.bookProjectStore.updateActive(source);
+                const archive = await props.context.bookProjectFiles.writeArchive(props.context.bookProjectStore.current());
+                await props.context.localDocuments.writeFile(activeBookHandle, archive);
+                setFileStatus(`Saved ${activeBookName ?? "the book project"}.`);
+                return;
+            }
+            if (activeBookName !== undefined && /\.mdbook$/i.test(activeBookName)) {
+                props.context.bookProjectStore.updateActive(source);
+                const archive = await props.context.bookProjectFiles.writeArchive(props.context.bookProjectStore.current());
+                props.context.fileSaver.saveBlob(new Blob([archive as BlobPart], { type: "application/zip" }), activeBookName);
+                setFileStatus(`Downloaded ${activeBookName}.`);
+                return;
+            }
             if (activeFileHandle !== undefined) {
                 await props.context.localDocuments.writeFile(activeFileHandle, source);
                 setFileStatus(`Saved ${fileName()}.`);
@@ -270,7 +386,8 @@ export function EditorPane(props: EditorPaneProps) {
     }
 
     async function saveAs(): Promise<void> {
-        const source = view?.state.doc.toString() ?? props.context.editorStore.current().source;
+        const source = currentSource();
+        props.onInput(source);
         try {
             const handle = await props.context.localDocuments.pickSaveFile(fileName());
             if (handle === undefined) {
@@ -291,7 +408,61 @@ export function EditorPane(props: EditorPaneProps) {
         }
     }
 
+    async function saveBookAs(): Promise<void> {
+        const source = currentSource();
+        props.onInput(source);
+        try {
+            props.context.bookProjectStore.updateActive(source);
+            const project = props.context.bookProjectStore.current();
+            if (activeBookDirectoryHandle !== undefined) {
+                await props.context.bookProjectFiles.writeFolder(activeBookDirectoryHandle, project);
+                setFileStatus(`Saved the ${folderName()} book folder.`);
+                return;
+            }
+            const suggestedName = `${slug(project.manifest.metadata.title)}.mdbook`;
+            const handle = await props.context.localDocuments.pickSaveFile(suggestedName);
+            const archive = await props.context.bookProjectFiles.writeArchive(project);
+            if (handle === undefined) {
+                props.context.fileSaver.saveBlob(
+                    new Blob([archive as BlobPart], { type: "application/zip" }),
+                    suggestedName
+                );
+                activeBookName = suggestedName;
+                setFileStatus(`Downloaded ${suggestedName}.`);
+                return;
+            }
+            await props.context.localDocuments.writeFile(handle, archive);
+            activeBookHandle = handle;
+            activeBookName = handle.name;
+            setFileName(handle.name);
+            setFileStatus(`Saved ${handle.name}.`);
+        } catch (error) {
+            if (!isPickerCancellation(error)) {
+                setFileStatus(`Could not save the book: ${errorMessage(error)} Your local recovery draft is preserved.`);
+            }
+        }
+    }
+
     async function openFileFromList(entry: LocalFileEntry): Promise<void> {
+        const bookEntry = activeBookName !== undefined || activeBookHandle !== undefined || activeBookDirectoryHandle !== undefined
+            ? props.context.bookProjectStore.current().manifest.entries.find(
+            (candidate) => candidate.path === entry.path
+            )
+            : undefined;
+        if (bookEntry !== undefined) {
+            try {
+                const selected = props.context.bookProjectStore.select(bookEntry.id);
+                setFileName(bookEntry.path);
+                props.context.editorStore.reset(selected.source);
+                props.onInput(selected.source);
+                scheduleRecovery(selected.source);
+                setFileStatus(`Opened ${bookEntry.title}.`);
+                return;
+            } catch (error) {
+                setFileStatus(`Could not open ${bookEntry.title}: ${errorMessage(error)}`);
+                return;
+            }
+        }
         try {
             const file = entry.handle !== undefined ? await entry.handle.getFile() : entry.file;
             if (file === undefined) return;
@@ -307,6 +478,18 @@ export function EditorPane(props: EditorPaneProps) {
         const file = input.files?.[0];
         input.value = "";
         if (file === undefined) return;
+        if (/\.mdbook$/i.test(file.name)) {
+            void file.arrayBuffer().then(async (buffer) => {
+                try {
+                    const project = await props.context.bookProjectFiles.readArchive(new Uint8Array(buffer));
+                    openBookProject(project, file.name);
+                    setFileStatus(`Opened ${file.name}.`);
+                } catch (error) {
+                    setFileStatus(`Could not open the book: ${errorMessage(error)}`);
+                }
+            });
+            return;
+        }
         void file.text().then((source) => {
             activeDirectoryHandle = undefined;
             replaceDocument(source, file.name);
@@ -325,6 +508,9 @@ export function EditorPane(props: EditorPaneProps) {
         setFolderName(entries[0]?.path.split(/[\\/]/)[0] ?? "Selected folder");
         activeFileHandle = undefined;
         activeDirectoryHandle = undefined;
+        activeBookHandle = undefined;
+        activeBookDirectoryHandle = undefined;
+        activeBookName = undefined;
         setFolderOpen(true);
         setFileStatus(`Loaded ${entries.length} Markdown files from the selected folder.`);
     }
@@ -336,9 +522,51 @@ export function EditorPane(props: EditorPaneProps) {
         );
     }
 
+    function openBookProject(
+        project: BookProject,
+        name?: string,
+        fileHandle?: LocalFileHandle,
+        directoryHandle?: LocalDirectoryHandle
+    ): void {
+        const entry = project.manifest.entries.find((candidate) => candidate.role === "chapter") ?? project.manifest.entries[0];
+        if (entry === undefined) throw new Error("This book has no chapter or section to open.");
+        const source = project.files[entry.path];
+        if (typeof source !== "string") throw new Error(`The Markdown file for “${entry.title}” is missing.`);
+        props.context.bookProjectStore.open(project, entry.id);
+        props.context.editorStore.reset(source);
+        props.onInput(source);
+        scheduleRecovery(source);
+        activeFileHandle = undefined;
+        activeDirectoryHandle = undefined;
+        activeBookHandle = fileHandle;
+        activeBookDirectoryHandle = directoryHandle;
+        activeBookName = name;
+        setFileName(entry.path);
+        setFolderName(project.manifest.metadata.title);
+        setFolderFiles(project.manifest.entries.map((bookEntry) => ({
+            path: bookEntry.path,
+            file: new File([String(project.files[bookEntry.path] ?? "")], fileNameFromPath(bookEntry.path), {
+                type: "text/markdown"
+            })
+        })));
+        setFolderOpen(true);
+    }
+
     function selectMode(next: EditorMode): void {
         if (next === mode()) return;
+        const focusOrigin = document.activeElement;
+        if (mode() === "rich") {
+            const source = currentSource();
+            props.onInput(source);
+            scheduleRecovery(source);
+        }
+        editorModeWasExplicitlySelected = true;
         setMode(next);
+        view?.contentDOM.setAttribute("id", next === "rich" ? "source-editor" : "editor");
+        view?.contentDOM.setAttribute(
+            "aria-label",
+            next === "rich" ? "Markdown source" : "Markdown editor"
+        );
         if (view === undefined) return;
         view.dispatch({
             effects: inlineCompartment.reconfigure(
@@ -346,6 +574,174 @@ export function EditorPane(props: EditorPaneProps) {
             )
         });
         if (next === "inline" && containsMath(view.state.doc.toString())) void loadKatex(view);
+        requestAnimationFrame(() => {
+            // Switching modes transfers focus into the editor, but must not
+            // steal it back if the user has already moved to another control.
+            if (document.activeElement !== focusOrigin) return;
+            if (next === "rich") richFocus?.();
+            else view?.focus();
+        });
+    }
+
+    function currentSource(): string {
+        return mode() === "rich"
+            ? (richSource?.() ?? props.context.editorStore.current().source)
+            : (view?.state.doc.toString() ?? props.context.editorStore.current().source);
+    }
+
+    function performHistoryStep(redo: boolean): boolean {
+        const changed = redo ? props.context.editorStore.redo() : props.context.editorStore.undo();
+        if (changed) props.onHistoryStep();
+        return changed;
+    }
+
+    function activateBookEntry(entryId: string, line?: number): void {
+        try {
+            const selected = props.context.bookProjectStore.select(entryId);
+            setFileName(selected.entry.path);
+            props.context.editorStore.reset(selected.source);
+            props.onInput(selected.source);
+            scheduleRecovery(selected.source);
+            setFileStatus(`Opened ${selected.entry.title}.`);
+            if (line !== undefined) {
+                requestAnimationFrame(() => {
+                    const source = props.context.editorStore.current().source;
+                    const offset = source.split(/\r?\n/).slice(0, Math.max(0, line - 1)).join("\n").length + (line > 1 ? 1 : 0);
+                    if (mode() === "rich") richNavigate?.(line === undefined ? selected.entry.title : (selected.source.split(/\r?\n/)[line - 1] ?? selected.entry.title).trim());
+                    else {
+                        view?.dispatch({ selection: { anchor: Math.min(offset, view.state.doc.length) }, scrollIntoView: true });
+                        view?.focus();
+                    }
+                });
+            }
+        } catch (error) {
+            setFileStatus(`Could not open the section: ${errorMessage(error)}`);
+        }
+    }
+
+    function addBookEntry(role: "chapter" | "front-matter" | "back-matter"): void {
+        const fallback = role === "chapter" ? "New chapter" : role === "front-matter" ? "Preface" : "References";
+        const title = window.prompt("Section title", fallback);
+        if (title === null) return;
+        try {
+            const entry = props.context.bookProjectStore.addEntry(role, title);
+            activateBookEntry(entry.id);
+            setFolderOpen(true);
+        } catch (error) {
+            setFileStatus(`Could not add the section: ${errorMessage(error)}`);
+        }
+    }
+
+    function renameBookEntry(entryId: string, title: string): void {
+        const next = window.prompt("Section title", title);
+        if (next === null) return;
+        try {
+            props.context.bookProjectStore.renameEntry(entryId, next);
+            scheduleRecovery(currentSource());
+        } catch (error) {
+            setFileStatus(`Could not rename the section: ${errorMessage(error)}`);
+        }
+    }
+
+    function moveBookEntry(entryId: string, direction: -1 | 1): void {
+        const entries = props.context.bookProjectStore.current().manifest.entries;
+        const index = entries.findIndex((entry) => entry.id === entryId);
+        if (index < 0) return;
+        props.context.bookProjectStore.reorderEntry(entryId, index + direction);
+        scheduleRecovery(currentSource());
+    }
+
+    function removeBookEntry(entryId: string, title: string): void {
+        if (!window.confirm(`Delete “${title}” from this book? This cannot be undone.`)) return;
+        try {
+            const wasActive = props.context.bookProjectStore.activeEntryId() === entryId;
+            props.context.bookProjectStore.removeEntry(entryId);
+            if (wasActive) activateBookEntry(props.context.bookProjectStore.activeEntryId());
+            else scheduleRecovery(currentSource());
+            setFileStatus(`Removed ${title}.`);
+        } catch (error) {
+            setFileStatus(`Could not remove the section: ${errorMessage(error)}`);
+        }
+    }
+
+    function updateBookMetadata(metadata: Partial<BookProject["manifest"]["metadata"]>): void {
+        props.context.bookProjectStore.updateMetadata(metadata);
+        scheduleRecovery(currentSource());
+    }
+
+    async function importBookAsset(file: File | undefined, kind: "cover" | "bibliography" | "citation-style"): Promise<void> {
+        if (file === undefined) return;
+        const maxSize = kind === "cover" ? 20 * 1024 * 1024 : 2 * 1024 * 1024;
+        if (file.size > maxSize) {
+            setFileStatus(`That file exceeds the ${Math.round(maxSize / (1024 * 1024))} MiB limit.`);
+            return;
+        }
+        try {
+            const store = props.context.bookProjectStore;
+            if (kind === "cover") {
+                const extension = file.name.split(".").at(-1)?.toLowerCase() ?? "png";
+                if (!/^(?:png|jpe?g|gif|svg|webp|avif)$/.test(extension)) throw new Error("Choose a PNG, JPEG, GIF, SVG, WebP, or AVIF image.");
+                const path = `assets/cover.${extension}`;
+                store.putFile(path, new Uint8Array(await file.arrayBuffer()));
+                store.updateMetadata({ coverPath: path });
+            } else if (kind === "bibliography") {
+                if (!file.name.toLowerCase().endsWith(".bib")) throw new Error("Choose a BibTeX .bib file.");
+                const path = "references/library.bib";
+                store.putFile(path, await file.text());
+                store.setBibliographyPath(path);
+            } else {
+                if (!file.name.toLowerCase().endsWith(".csl")) throw new Error("Choose a CSL .csl style file.");
+                const path = "styles/custom.csl";
+                store.putFile(path, await file.text());
+                store.setCitationStylePath(path);
+            }
+            scheduleRecovery(currentSource());
+            setFileStatus(`${file.name} added to the book project.`);
+        } catch (error) {
+            setFileStatus(`Could not add that file: ${errorMessage(error)}`);
+        }
+    }
+
+    function replaceAcrossBook(): void {
+        if (replaceText().length === 0) return;
+        const count = props.context.bookProjectStore.replaceAll(replaceText(), replaceWith());
+        const active = props.context.bookProjectStore.select(props.context.bookProjectStore.activeEntryId());
+        props.context.editorStore.reset(active.source);
+        props.onInput(active.source);
+        setFileStatus(count === 0 ? "No matching text was found." : `Replaced ${count} occurrence${count === 1 ? "" : "s"} across the manuscript.`);
+    }
+
+    function outlineItems(): { title: string; line: number; level: number }[] {
+        const source = props.context.editorStore.current().source;
+        const items: { title: string; line: number; level: number }[] = [];
+        let fence: { marker: string; size: number } | undefined;
+        source.split(/\r?\n/).forEach((text, index) => {
+            const marker = /^\s{0,3}(`{3,}|~{3,})/.exec(text)?.[1];
+            if (marker !== undefined) {
+                if (fence === undefined) fence = { marker: marker[0] ?? "`", size: marker.length };
+                else if (marker[0] === fence.marker && marker.length >= fence.size) fence = undefined;
+                return;
+            }
+            if (fence !== undefined) return;
+            const heading = /^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/.exec(text);
+            if (heading?.[2] !== undefined) {
+                const title = heading[2].replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/[*_`~]/g, "").trim();
+                items.push({ title, line: index + 1, level: heading[1]?.length ?? 1 });
+            }
+        });
+        return items;
+    }
+
+    function totalBookWords(): number {
+        const project = props.context.bookProjectStore.current();
+        return project.manifest.entries.reduce((total, entry) => {
+            const source = project.files[entry.path];
+            return total + (typeof source === "string" ? source.trim().split(/\s+/u).filter(Boolean).length : 0);
+        }, 0);
+    }
+
+    function activeSectionWords(): number {
+        return props.context.editorStore.current().source.trim().split(/\s+/u).filter(Boolean).length;
     }
 
     return (
@@ -358,6 +754,13 @@ export function EditorPane(props: EditorPaneProps) {
                         onClick={() => void openFile()}
                     >
                         Open file
+                    </button>
+                    <button
+                        type="button"
+                        class="editor-file-action"
+                        onClick={() => void openFile()}
+                    >
+                        Open book
                     </button>
                     <button
                         type="button"
@@ -376,6 +779,21 @@ export function EditorPane(props: EditorPaneProps) {
                     <button type="button" class="editor-file-action" onClick={() => void saveAs()}>
                         Save as
                     </button>
+                    <button
+                        type="button"
+                        class="editor-file-action"
+                        onClick={() => void saveBookAs()}
+                    >
+                        Save book
+                    </button>
+                    <button
+                        type="button"
+                        class="editor-file-action"
+                        aria-expanded={folderOpen()}
+                        onClick={() => setFolderOpen((open) => !open)}
+                    >
+                        Manuscript
+                    </button>
                     <span class="editor-toolbar__filename" title={fileName()}>
                         {fileName()}
                     </span>
@@ -383,6 +801,14 @@ export function EditorPane(props: EditorPaneProps) {
                 <div class="editor-toolbar__right">
                     <span class="editor-toolbar__label">Edit</span>
                     <div class="editor-toolbar__modes">
+                        <button
+                            type="button"
+                            class="editor-mode"
+                            aria-pressed={mode() === "rich"}
+                            onClick={() => selectMode("rich")}
+                        >
+                            Rich
+                        </button>
                         <button
                             type="button"
                             class="editor-mode"
@@ -406,7 +832,7 @@ export function EditorPane(props: EditorPaneProps) {
                 <Show when={folderOpen()}>
                     <aside class="file-sidebar" aria-label={`${folderName()} files`}>
                         <div class="file-sidebar__header">
-                            <span class="file-sidebar__title">{folderName()}</span>
+                            <span class="file-sidebar__title">Manuscript</span>
                             <button
                                 type="button"
                                 class="file-sidebar__close"
@@ -416,6 +842,80 @@ export function EditorPane(props: EditorPaneProps) {
                                 ×
                             </button>
                         </div>
+                        <div class="book-tools">
+                            <Show when={props.context.bookProjectStore.current().manifest.entries.length > 0}>
+                                <p class="book-tools__count">{activeSectionWords().toLocaleString()} words in this section · {totalBookWords().toLocaleString()} words in all sections</p>
+                            </Show>
+                            <div class="book-tools__actions">
+                                <button type="button" onClick={() => addBookEntry("chapter")}>Add chapter</button>
+                                <details class="book-tools__more">
+                                    <summary>More</summary>
+                                    <button type="button" onClick={() => addBookEntry("front-matter")}>Add front matter</button>
+                                    <button type="button" onClick={() => addBookEntry("back-matter")}>Add back matter</button>
+                                </details>
+                            </div>
+                            <nav class="book-tools__sections" aria-label="Book sections">
+                                <h3>Book sections</h3>
+                                <ol>
+                                    <For each={props.context.bookProjectStore.current().manifest.entries}>
+                                        {(entry, index) => (
+                                            <li classList={{ "is-current": props.context.bookProjectStore.activeEntryId() === entry.id }}>
+                                                <button type="button" class="book-tools__section" aria-current={props.context.bookProjectStore.activeEntryId() === entry.id ? "page" : undefined} onClick={() => activateBookEntry(entry.id)}>
+                                                    <span>{entry.title}</span>
+                                                    <small>{entry.role === "front-matter" ? "Front matter" : entry.role === "back-matter" ? "Back matter" : "Chapter"}</small>
+                                                </button>
+                                                <div class="book-tools__section-actions">
+                                                    <button type="button" aria-label={`Rename ${entry.title}`} title="Rename" onClick={() => renameBookEntry(entry.id, entry.title)}>Rename</button>
+                                                    <button type="button" aria-label={`Move ${entry.title} up`} title="Move up" disabled={index() === 0} onClick={() => moveBookEntry(entry.id, -1)}>↑</button>
+                                                    <button type="button" aria-label={`Move ${entry.title} down`} title="Move down" disabled={index() === props.context.bookProjectStore.current().manifest.entries.length - 1} onClick={() => moveBookEntry(entry.id, 1)}>↓</button>
+                                                    <button type="button" aria-label={`Delete ${entry.title}`} title="Delete" onClick={() => removeBookEntry(entry.id, entry.title)}>×</button>
+                                                </div>
+                                            </li>
+                                        )}
+                                    </For>
+                                </ol>
+                            </nav>
+                            <details class="book-tools__details">
+                                <summary>Book details</summary>
+                                <label>Title<input value={props.context.bookProjectStore.current().manifest.metadata.title} onInput={(event) => updateBookMetadata({ title: event.currentTarget.value })} /></label>
+                                <label>Subtitle<input value={props.context.bookProjectStore.current().manifest.metadata.subtitle ?? ""} onInput={(event) => updateBookMetadata({ subtitle: event.currentTarget.value })} /></label>
+                                <label>Authors<input value={props.context.bookProjectStore.current().manifest.metadata.authors.join(", ")} onInput={(event) => updateBookMetadata({ authors: event.currentTarget.value.split(",").map((author) => author.trim()).filter(Boolean) })} /></label>
+                                <label>Language<input value={props.context.bookProjectStore.current().manifest.metadata.language} onInput={(event) => updateBookMetadata({ language: event.currentTarget.value })} /></label>
+                                <label>Publisher<input value={props.context.bookProjectStore.current().manifest.metadata.publisher ?? ""} onInput={(event) => updateBookMetadata({ publisher: event.currentTarget.value })} /></label>
+                                <label>ISBN<input value={props.context.bookProjectStore.current().manifest.metadata.isbn ?? ""} onInput={(event) => updateBookMetadata({ isbn: event.currentTarget.value })} /></label>
+                                <label>Description<textarea value={props.context.bookProjectStore.current().manifest.metadata.description ?? ""} onInput={(event) => updateBookMetadata({ description: event.currentTarget.value })} /></label>
+                                <label>Cover<input type="file" accept="image/png,image/jpeg,image/gif,image/svg+xml,image/webp,image/avif" onChange={(event) => { void importBookAsset(event.currentTarget.files?.[0], "cover"); event.currentTarget.value = ""; }} /></label>
+                                <label>BibTeX references<input type="file" accept=".bib,text/plain" onChange={(event) => { void importBookAsset(event.currentTarget.files?.[0], "bibliography"); event.currentTarget.value = ""; }} /></label>
+                                <label>Citation style (CSL)<input type="file" accept=".csl,application/xml,text/xml" onChange={(event) => { void importBookAsset(event.currentTarget.files?.[0], "citation-style"); event.currentTarget.value = ""; }} /></label>
+                            </details>
+                            <label class="book-tools__search">Find in manuscript<input type="search" value={bookQuery()} onInput={(event) => setBookQuery(event.currentTarget.value)} placeholder="Search all sections" /></label>
+                            <Show when={bookQuery().trim().length > 0}>
+                                <ul class="book-tools__matches">
+                                    <For each={props.context.bookProjectStore.search(bookQuery()).slice(0, 30)}>
+                                        {(match) => <li><button type="button" onClick={() => activateBookEntry(match.entryId, match.line)}><strong>{match.title}, line {match.line}</strong><span>{match.excerpt}</span></button></li>}
+                                    </For>
+                                </ul>
+                            </Show>
+                            <details class="book-tools__details">
+                                <summary>Replace across manuscript</summary>
+                                <label>Find<input value={replaceText()} onInput={(event) => setReplaceText(event.currentTarget.value)} /></label>
+                                <label>Replace with<input value={replaceWith()} onInput={(event) => setReplaceWith(event.currentTarget.value)} /></label>
+                                <button type="button" disabled={replaceText().length === 0} onClick={() => replaceAcrossBook()}>Replace all</button>
+                            </details>
+                            <div class="book-tools__outline" aria-label="Current section outline">
+                                <h3>Outline</h3>
+                                <Show when={outlineItems().length > 0} fallback={<p>No headings in this section.</p>}>
+                                    <ul><For each={outlineItems()}>{(heading) => <li><button type="button" classList={{ [`level-${heading.level}`]: true }} onClick={() => {
+                                        if (mode() === "rich") richNavigate?.(heading.title);
+                                        else {
+                                            const offset = view?.state.doc.line(heading.line).from ?? 0;
+                                            view?.dispatch({ selection: { anchor: offset }, scrollIntoView: true });
+                                            view?.focus();
+                                        }
+                                    }}>{heading.title}</button></li>}</For></ul>
+                                </Show>
+                            </div>
+                        </div>
                         <div class="file-sidebar__list">
                             <For each={folderFiles()}>
                                 {(entry) => (
@@ -424,7 +924,9 @@ export function EditorPane(props: EditorPaneProps) {
                                         class="file-sidebar__file"
                                         classList={{
                                             "is-current":
-                                                fileName() === fileNameFromPath(entry.path)
+                                                props.context.bookProjectStore.current().manifest.entries.some((bookEntry) => bookEntry.path === entry.path)
+                                                    ? props.context.bookProjectStore.current().manifest.entries.find((bookEntry) => bookEntry.path === entry.path)?.id === props.context.bookProjectStore.activeEntryId()
+                                                    : fileName() === fileNameFromPath(entry.path)
                                         }}
                                         title={entry.path}
                                         onClick={() => void openFileFromList(entry)}
@@ -439,12 +941,28 @@ export function EditorPane(props: EditorPaneProps) {
                         </div>
                     </aside>
                 </Show>
-                <div
-                    class="editor-host"
-                    ref={(element) => {
-                        editorHost = element;
-                    }}
-                />
+                <div class="editor-surfaces">
+                    <div
+                        class="editor-host"
+                        classList={{ "editor-host--inactive": mode() === "rich" }}
+                        ref={(element) => {
+                            editorHost = element;
+                        }}
+                    />
+                    <RichMarkdownEditor
+                        source={() => props.context.editorStore.current().source}
+                        active={() => mode() === "rich"}
+                        onInput={(source) => {
+                            props.onInput(source);
+                            scheduleRecovery(source);
+                        }}
+                        onUndo={(redo) => performHistoryStep(redo)}
+                        onSave={() => void saveCurrent()}
+                        onFocusReady={(focus) => (richFocus = focus)}
+                        onSourceReady={(read) => (richSource = read)}
+                        onNavigateReady={(navigate) => (richNavigate = navigate)}
+                    />
+                </div>
             </div>
             <div class="editor-footer" role="status" aria-live="polite">
                 {fileStatus()}
@@ -452,7 +970,7 @@ export function EditorPane(props: EditorPaneProps) {
             <input
                 class="editor-file-input"
                 type="file"
-                accept=".md,.markdown,.mdown,.mkd,.txt,text/markdown,text/plain"
+                accept=".md,.markdown,.mdown,.mkd,.txt,.mdbook,text/markdown,text/plain,application/zip"
                 aria-label="Choose Markdown file"
                 ref={(element) => {
                     openFileInput = element;
@@ -486,6 +1004,15 @@ function errorMessage(error: unknown): string {
 function fileNameFromPath(path: string): string {
     const pieces = path.split(/[\\/]/);
     return pieces[pieces.length - 1] || "document.md";
+}
+
+function removeExtension(name: string): string {
+    return name.replace(/\.[^.]+$/, "").trim() || "Untitled manuscript";
+}
+
+function slug(title: string): string {
+    const value = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    return value.length > 0 ? value : "book";
 }
 
 const inlinePlugin = ViewPlugin.fromClass(

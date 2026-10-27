@@ -6,7 +6,7 @@ export interface LocalFileHandle {
 }
 
 export interface LocalFileWritable {
-    write(data: string): Promise<void>;
+    write(data: string | Uint8Array | Blob): Promise<void>;
     close(): Promise<void>;
 }
 
@@ -15,6 +15,7 @@ export interface LocalDirectoryHandle {
     readonly name: string;
     values(): AsyncIterable<LocalFileHandle | LocalDirectoryHandle>;
     getFileHandle(name: string, options?: { create?: boolean }): Promise<LocalFileHandle>;
+    getDirectoryHandle?(name: string, options?: { create?: boolean }): Promise<LocalDirectoryHandle>;
 }
 
 export interface LocalFileEntry {
@@ -28,5 +29,5 @@ export interface LocalDocuments {
     pickDirectory(): Promise<LocalDirectoryHandle | undefined>;
     pickSaveFile(suggestedName: string): Promise<LocalFileHandle | undefined>;
     listMarkdownFiles(directory: LocalDirectoryHandle): Promise<LocalFileEntry[]>;
-    writeFile(handle: LocalFileHandle, source: string): Promise<void>;
+    writeFile(handle: LocalFileHandle, source: string | Uint8Array | Blob): Promise<void>;
 }

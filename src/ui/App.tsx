@@ -1,9 +1,9 @@
 import { createEffect, createSignal, lazy, onCleanup, onMount, Show, Suspense } from "solid-js";
-import type { EditorView } from "@codemirror/view";
 
 import type { ApplicationContext } from "../ApplicationContext";
 import type { ExportFormat } from "../domain/ExportFormat";
 import type { MarkdownDocument } from "../domain/MarkdownDocument";
+import { MarkdownDocument as MarkdownDocumentValue } from "../domain/MarkdownDocument";
 import { Debouncer } from "../util/Debouncer";
 import { Header } from "./components/Header";
 import { PageSetupSheet } from "./components/PageSetupSheet";
@@ -37,15 +37,15 @@ export function App(props: AppProps) {
     const [shortcutsOpen, setShortcutsOpen] = createSignal(false);
     const [announcement, setAnnouncement] = createSignal("");
 
-    let editorView: EditorView | undefined;
+    let focusEditor: (() => void) | undefined;
     let previewFlow: HTMLDivElement | undefined;
     let main: HTMLElement | undefined;
     let pendingRevision = -1;
     let announceTimer: ReturnType<typeof setTimeout> | undefined;
     let restoreFocus: HTMLElement | undefined;
 
-    function setEditor(view: EditorView | undefined): void {
-        editorView = view;
+    function setEditor(focus: (() => void) | undefined): void {
+        focusEditor = focus;
     }
 
     function setPreviewFlow(element: HTMLDivElement | undefined): void {
@@ -103,7 +103,6 @@ export function App(props: AppProps) {
         window.addEventListener("keydown", onKeyDown);
         onCleanup(() => window.removeEventListener("keydown", onKeyDown));
 
-        editorView?.focus();
     });
 
     createEffect(() => {
@@ -124,6 +123,7 @@ export function App(props: AppProps) {
 
     function onSourceChange(source: string): void {
         context.editorStore.update(source);
+        context.bookProjectStore.updateActive(source);
         pendingRevision = context.editorStore.current().revision;
         debouncer.schedule();
     }
@@ -183,7 +183,10 @@ export function App(props: AppProps) {
             format,
             rendered,
             previewFlow,
-            context.settingsStore.current()
+            context.settingsStore.current(),
+            context.bookProjectStore.current(),
+            async (source) =>
+                (await context.editorController.render(MarkdownDocumentValue.initial(source))).content
         );
         exportStore.settle(result);
     }
@@ -261,7 +264,16 @@ export function App(props: AppProps) {
                         </section>
                     }
                 >
-                    <EditorPane context={context} onInput={onSourceChange} editorRef={setEditor} />
+                    <EditorPane
+                        context={context}
+                        onInput={onSourceChange}
+                        onHistoryStep={() => {
+                            context.bookProjectStore.updateActive(context.editorStore.current().source);
+                            pendingRevision = context.editorStore.current().revision;
+                            debouncer.schedule();
+                        }}
+                        editorRef={setEditor}
+                    />
                 </Suspense>
                 <SplitDivider
                     split={split()}
@@ -272,7 +284,7 @@ export function App(props: AppProps) {
                 <PreviewPane
                     context={context}
                     flowRef={setPreviewFlow}
-                    onFocusEditor={() => editorView?.focus()}
+                    onFocusEditor={() => focusEditor?.()}
                 />
             </main>
             <StatusBar context={context} />

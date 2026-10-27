@@ -45,7 +45,7 @@ describe("LocalFiles", () => {
     });
 
     it("closes local writable streams after saving", async () => {
-        let written = "";
+        let written: string | Uint8Array | Blob = "";
         let closed = false;
         const handle: LocalFileHandle = {
             kind: "file",

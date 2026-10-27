@@ -58,10 +58,27 @@ export function PageSetupSheet(props: PageSetupSheetProps) {
                         }
                     >
                         <option value="a4">{PAGE_SIZES.a4.label}</option>
+                        <option value="a5">{PAGE_SIZES.a5.label}</option>
+                        <option value="six-by-nine">{PAGE_SIZES["six-by-nine"].label}</option>
                         <option value="letter">{PAGE_SIZES.letter.label}</option>
                         <option value="legal">{PAGE_SIZES.legal.label}</option>
+                        <option value="custom">Custom</option>
                     </select>
                 </label>
+                {settings().pageSize === "custom" && (
+                    <div class="page-setup__custom-size">
+                        <label class="field">
+                            <span class="field__label">Width</span>
+                            <input class="number" type="number" min="80" max="500" step="1" value={String(settings().customWidthMm ?? 152.4)} onInput={(event) => settingsStore.patch({ customWidthMm: clamp(Number(event.currentTarget.value), 80, 500) })} />
+                            <span class="field__hint">Millimetres</span>
+                        </label>
+                        <label class="field">
+                            <span class="field__label">Height</span>
+                            <input class="number" type="number" min="80" max="500" step="1" value={String(settings().customHeightMm ?? 228.6)} onInput={(event) => settingsStore.patch({ customHeightMm: clamp(Number(event.currentTarget.value), 80, 500) })} />
+                            <span class="field__hint">Millimetres</span>
+                        </label>
+                    </div>
+                )}
                 <label class="field">
                     <span class="field__label">Margins</span>
                     <select

@@ -54,6 +54,7 @@ test("serves the app from a project page path", async ({ page }) => {
     page.on("pageerror", (error) => failures.push(String(error)));
 
     await page.goto("http://127.0.0.1:4188/markdown-exporter/");
+    await page.getByRole("button", { name: "Source", exact: true }).click();
     await expect(page.getByLabel("Markdown editor")).toBeFocused();
     await page
         .getByLabel("Markdown editor")

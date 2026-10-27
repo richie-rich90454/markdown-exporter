@@ -22,9 +22,11 @@
     --focus: #0a0a0a;
     --danger: #c81e1e;
 
-    /* Typefaces: system stacks only, no network fonts. */
+    /* Local Noto Sans keeps the writing surface consistent when offline. */
     --font-ui:
-        -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        "Noto Sans Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    --font-reading:
+        "Noto Sans Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
     --font-editor:
         ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 
@@ -35,7 +37,7 @@
     --text-editor: 13px;
 
     /* Metrics. */
-    --radius: 4px;
+    --radius: 5px;
     --header-height: 48px;
     --statusbar-height: 28px;
     --divider-hit: 8px;

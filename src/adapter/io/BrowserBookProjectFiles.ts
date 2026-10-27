@@ -1,0 +1,21 @@
+import { decodeBookArchive, encodeBookArchive } from "./BookArchive";
+import { readBookFolder, writeBookFolder } from "./BookFolder";
+import type { BookProjectFiles } from "../../port/BookProjectFiles";
+
+export class BrowserBookProjectFiles implements BookProjectFiles {
+    readArchive(input: Blob | ArrayBuffer | Uint8Array) {
+        return decodeBookArchive(input);
+    }
+
+    writeArchive(project: Parameters<BookProjectFiles["writeArchive"]>[0]) {
+        return encodeBookArchive(project);
+    }
+
+    readFolder(root: Parameters<BookProjectFiles["readFolder"]>[0]) {
+        return readBookFolder(root);
+    }
+
+    writeFolder(root: Parameters<BookProjectFiles["writeFolder"]>[0], project: Parameters<BookProjectFiles["writeFolder"]>[1]) {
+        return writeBookFolder(root, project);
+    }
+}

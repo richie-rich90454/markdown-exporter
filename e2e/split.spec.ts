@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 test("oversized blocks split across pages and survive editing", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/");
+    await page.getByRole("button", { name: "Source", exact: true }).click();
 
     const quote = Array.from(
         { length: 80 },

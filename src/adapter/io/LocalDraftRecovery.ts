@@ -1,4 +1,5 @@
 import type { DraftRecovery, RecoveredDraft } from "../../port/DraftRecovery";
+import { validateBookProject, type BookProject } from "../../domain/BookProject";
 
 const DATABASE_NAME = "markdown-exporter-local";
 const STORE_NAME = "drafts";
@@ -22,20 +23,24 @@ async function loadRecoveryDraft(): Promise<RecoveredDraft | null> {
     try {
         const value = localStorage.getItem(LOCAL_STORAGE_KEY);
         if (value === null) return null;
-        const parsed = JSON.parse(value) as Partial<RecoveredDraft>;
-        return typeof parsed.source === "string"
-            ? {
-                  source: parsed.source,
-                  savedAt: typeof parsed.savedAt === "number" ? parsed.savedAt : 0
-              }
-            : null;
+        const parsed = JSON.parse(value, decodeBinary) as Partial<RecoveredDraft>;
+        return normalizeDraft(parsed);
     } catch {
         return null;
     }
 }
 
-async function saveRecoveryDraft(source: string): Promise<void> {
-    const draft: RecoveredDraft = { source, savedAt: Date.now() };
+async function saveRecoveryDraft(
+    source: string,
+    bookProject?: BookProject,
+    activeEntryId?: string
+): Promise<void> {
+    const draft: RecoveredDraft = {
+        source,
+        savedAt: Date.now(),
+        ...(bookProject === undefined ? {} : { bookProject }),
+        ...(activeEntryId === undefined ? {} : { activeEntryId })
+    };
     try {
         const database = await openDatabase();
         if (database !== null) {
@@ -49,7 +54,7 @@ async function saveRecoveryDraft(source: string): Promise<void> {
     } catch {
         // Keep recovery available in browsers with blocked or unavailable IndexedDB.
     }
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(draft));
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(draft, encodeBinary));
 }
 
 export class BrowserDraftRecovery implements DraftRecovery {
@@ -57,8 +62,8 @@ export class BrowserDraftRecovery implements DraftRecovery {
         return loadRecoveryDraft();
     }
 
-    save(source: string): Promise<void> {
-        return saveRecoveryDraft(source);
+    save(source: string, bookProject?: BookProject, activeEntryId?: string): Promise<void> {
+        return saveRecoveryDraft(source, bookProject, activeEntryId);
     }
 }
 
@@ -83,21 +88,54 @@ function readDraft(database: IDBDatabase): Promise<RecoveredDraft | null> {
         const transaction = database.transaction(STORE_NAME, "readonly");
         const request = transaction.objectStore(STORE_NAME).get(DRAFT_KEY);
         request.onsuccess = () => {
-            const result = request.result as Partial<RecoveredDraft> | undefined;
-            resolve(
-                result !== undefined && typeof result.source === "string"
-                    ? {
-                          source: result.source,
-                          savedAt: typeof result.savedAt === "number" ? result.savedAt : 0
-                      }
-                    : null
-            );
+            resolve(normalizeDraft(request.result as Partial<RecoveredDraft> | undefined));
         };
         request.onerror = () =>
             reject(request.error ?? new Error("Could not load the recovery draft."));
         transaction.onabort = () =>
             reject(transaction.error ?? new Error("Recovery read was interrupted."));
     });
+}
+
+function normalizeDraft(value: Partial<RecoveredDraft> | null | undefined): RecoveredDraft | null {
+    if (value === null || value === undefined || typeof value.source !== "string") return null;
+    let bookProject: BookProject | undefined;
+    try {
+        if (value.bookProject !== undefined) bookProject = validateBookProject(value.bookProject);
+    } catch {
+        // A damaged book snapshot should not prevent recovering its active Markdown text.
+    }
+    const activeEntryId = typeof value.activeEntryId === "string" &&
+        bookProject?.manifest.entries.some((entry) => entry.id === value.activeEntryId)
+        ? value.activeEntryId
+        : undefined;
+    return {
+        source: value.source,
+        savedAt: typeof value.savedAt === "number" ? value.savedAt : 0,
+        ...(bookProject === undefined ? {} : { bookProject }),
+        ...(activeEntryId === undefined ? {} : { activeEntryId })
+    };
+}
+
+function encodeBinary(_key: string, value: unknown): unknown {
+    if (!(value instanceof Uint8Array)) return value;
+    let binary = "";
+    for (let offset = 0; offset < value.length; offset += 0x8000) {
+        binary += String.fromCharCode(...value.subarray(offset, offset + 0x8000));
+    }
+    return { __binary: "uint8", data: btoa(binary) };
+}
+
+function decodeBinary(_key: string, value: unknown): unknown {
+    if (typeof value !== "object" || value === null || !("__binary" in value) || !("data" in value)) return value;
+    const encoded = value as { readonly __binary?: unknown; readonly data?: unknown };
+    if (encoded.__binary !== "uint8" || typeof encoded.data !== "string") return value;
+    try {
+        const binary = atob(encoded.data);
+        return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    } catch {
+        return value;
+    }
 }
 
 function writeDraft(database: IDBDatabase, draft: RecoveredDraft): Promise<void> {

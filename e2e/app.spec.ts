@@ -28,8 +28,13 @@ const SAMPLE = [
     "> Local only."
 ].join("\n");
 
+async function useSourceEditor(page: Page): Promise<void> {
+    await page.getByRole("button", { name: "Source", exact: true }).click();
+}
+
 async function load(page: Page): Promise<void> {
     await page.goto("/");
+    await useSourceEditor(page);
     const editor = page.getByLabel("Markdown editor");
     await expect(editor).toBeFocused();
     await editor.fill(SAMPLE);
@@ -53,6 +58,7 @@ test("renders the document into paged previews", async ({ page }) => {
 
 test("virtualizes the canvases for off-screen preview pages", async ({ page }) => {
     await page.goto("/");
+    await useSourceEditor(page);
     const long = Array.from(
         { length: 260 },
         (_, index) =>
@@ -67,6 +73,7 @@ test("virtualizes the canvases for off-screen preview pages", async ({ page }) =
 
 test("shows the empty state before anything is typed", async ({ page }) => {
     await page.goto("/");
+    await useSourceEditor(page);
     await expect(page.locator(".preview__placeholder")).toHaveText(
         "Your document will appear here."
     );
@@ -90,6 +97,7 @@ test("lazy editor startup does not steal focus from another control", async ({ p
 
 test("source and inline modes share the Markdown document and undo history", async ({ page }) => {
     await page.goto("/");
+    await useSourceEditor(page);
     const editor = page.getByLabel("Markdown editor");
     await editor.fill("**bold** and $x^2$");
 
@@ -109,6 +117,7 @@ test("inline mode decorates short emphasis and renders Pandoc raw TeX spans", as
         if (message.type() === "error") errors.push(message.text());
     });
     await page.goto("/");
+    await useSourceEditor(page);
     const editor = page.getByLabel("Markdown editor");
     await editor.fill("A *go* _up_ ~~away~~ ==now== with `\\alpha`{=tex}.");
     await page.getByRole("button", { name: "Inline" }).click();
@@ -123,6 +132,7 @@ test("inline mode decorates short emphasis and renders Pandoc raw TeX spans", as
 
 test("measures preview math at the page width before painting it", async ({ page }) => {
     await page.goto("/");
+    await useSourceEditor(page);
     await page
         .getByLabel("Markdown editor")
         .fill("Inline $x^2$ and display:\n\n\\[\\frac{1}{2}\\]");
@@ -141,6 +151,7 @@ test("measures preview math at the page width before painting it", async ({ page
 
 test("preserves display-mode sum layout in the paginated preview", async ({ page }) => {
     await page.goto("/");
+    await useSourceEditor(page);
     await page.getByLabel("Markdown editor").fill("\\[a \\cdot b = \\sum_{i=1}^{n} a_i b_i.\\]");
     const overlay = page.locator(".page-math-overlay");
     await expect(overlay).toHaveCount(1);
@@ -206,6 +217,7 @@ test("renders copied double-escaped TeX consistently in preview and inline mode"
             "]"
     ].join("\n");
     await page.goto("/");
+    await useSourceEditor(page);
     const editor = page.getByLabel("Markdown editor");
     await editor.fill(source);
 
@@ -248,6 +260,7 @@ test("renders copied double-escaped TeX consistently in preview and inline mode"
 
 test("inline mode renders multiline and fenced math without changing source", async ({ page }) => {
     await page.goto("/");
+    await useSourceEditor(page);
     const source = "\\[\n\\frac{1}{2}\n\\]\n\n```math\n\\sqrt{x}\n```";
     const editor = page.getByLabel("Markdown editor");
     await editor.fill(source);
@@ -277,6 +290,7 @@ test("inline mode restores Markdown after scrolling through a fenced code block"
     ].join("\n");
 
     await page.goto("/");
+    await useSourceEditor(page);
     await page.getByLabel("Markdown editor").fill(source);
     await page.getByRole("button", { name: "Inline" }).click();
     await page.locator(".cm-scroller").evaluate((element) => {
@@ -298,6 +312,7 @@ test("inline math keeps full-document fence context beyond the editor viewport",
     page
 }) => {
     await page.goto("/");
+    await useSourceEditor(page);
     const editor = page.getByLabel("Markdown editor");
     const source =
         "```text\n" +
@@ -316,6 +331,7 @@ test("inline mode renders a long math fence and loads offscreen chemistry suppor
     page
 }) => {
     await page.goto("/");
+    await useSourceEditor(page);
     const editor = page.getByLabel("Markdown editor");
     const source =
         "```math\n" +
@@ -340,6 +356,7 @@ test("inline math resolves chemistry commands, equation labels, and references",
         "\\[\\ce{H2O -> H+ + OH-}\\label{eq:water}\\]\n\n" +
         "See \\eqref{eq:water} and reference \\ref{eq:water}.";
     await page.goto("/");
+    await useSourceEditor(page);
     const editor = page.getByLabel("Markdown editor");
     await editor.fill(source);
     await page.getByRole("button", { name: "Inline" }).click();
@@ -370,6 +387,7 @@ test("opens a Markdown file through the picker fallback and recovers its local d
         });
     });
     await page.goto("/");
+    await useSourceEditor(page);
     const chooser = page.waitForEvent("filechooser");
     await page.getByRole("button", { name: "Open file" }).click();
     await (
@@ -386,8 +404,9 @@ test("opens a Markdown file through the picker fallback and recovers its local d
     await expect(page.locator(".editor-footer")).toContainText("Draft recovered automatically");
 
     await page.reload();
-    await expect(page.getByLabel("Markdown editor")).toContainText("# Imported locally");
     await expect(page.locator(".editor-footer")).toContainText("Recovered a local draft");
+    await useSourceEditor(page);
+    await expect(page.getByLabel("Markdown editor")).toContainText("# Imported locally");
 });
 
 test("shows a filtered folder sidebar through the directory-picker fallback", async ({
@@ -400,6 +419,7 @@ test("shows a filtered folder sidebar through the directory-picker fallback", as
         });
     });
     await page.goto("/");
+    await useSourceEditor(page);
     const chooserPromise = page.waitForEvent("filechooser");
     await page.getByRole("button", { name: "Open folder" }).click();
     const chooser = await chooserPromise;
@@ -456,7 +476,10 @@ test("opens a local folder, edits its Markdown file, and saves through its handl
                 await Promise.resolve();
                 yield handle;
             },
-            getFileHandle: () => Promise.resolve(handle)
+            getFileHandle: (name: string) =>
+                name === handle.name
+                    ? Promise.resolve(handle)
+                    : Promise.reject(new DOMException("File not found", "NotFoundError"))
         };
         Object.defineProperty(window, "showDirectoryPicker", {
             configurable: true,
@@ -464,6 +487,7 @@ test("opens a local folder, edits its Markdown file, and saves through its handl
         });
     });
     await page.goto("/");
+    await useSourceEditor(page);
 
     await page.getByRole("button", { name: "Open folder" }).click();
     await expect(page.getByRole("complementary", { name: "Notes files" })).toBeVisible();
@@ -513,7 +537,10 @@ test("switching documents never leaves a stale file or folder save target", asyn
                 await Promise.resolve();
                 yield folderFile;
             },
-            getFileHandle: () => Promise.resolve(folderFile)
+            getFileHandle: (name: string) =>
+                name === folderFile.name
+                    ? Promise.resolve(folderFile)
+                    : Promise.reject(new DOMException("File not found", "NotFoundError"))
         };
         Object.defineProperty(window, "showOpenFilePicker", {
             configurable: true,
@@ -525,6 +552,7 @@ test("switching documents never leaves a stale file or folder save target", asyn
         });
     });
     await page.goto("/");
+    await useSourceEditor(page);
     await page.getByRole("button", { name: "Open file" }).click();
     await expect(page.getByLabel("Markdown editor")).toContainText("# Original file");
 
@@ -587,6 +615,7 @@ test("keeps recovery after save permission is denied and downloads through the f
         });
     });
     await page.goto("/");
+    await useSourceEditor(page);
     const editor = page.getByLabel("Markdown editor");
     await editor.fill("# Private note\n\nKeep this draft on device.");
     await page.getByRole("button", { name: "Save as" }).click();
@@ -595,8 +624,9 @@ test("keeps recovery after save permission is denied and downloads through the f
     await expect(page.locator(".editor-footer")).toContainText("Draft recovered automatically");
 
     await page.reload();
-    await expect(page.getByLabel("Markdown editor")).toContainText("# Private note");
     await expect(page.locator(".editor-footer")).toContainText("Recovered a local draft");
+    await useSourceEditor(page);
+    await expect(page.getByLabel("Markdown editor")).toContainText("# Private note");
     await page.evaluate(() => {
         Object.defineProperty(window, "showSaveFilePicker", {
             configurable: true,
@@ -623,6 +653,7 @@ test("does not load KaTeX or Mermaid for plain Markdown or currency", async ({ p
     });
 
     await page.goto("/");
+    await useSourceEditor(page);
     await page.getByLabel("Markdown editor").fill("Plain notes. Price: $2 and $3 per item.");
     await expect(page.locator(".preview__flow p")).toHaveText(
         "Plain notes. Price: $2 and $3 per item."
@@ -640,6 +671,7 @@ test("loads code highlighting and raw HTML parsing only when those features are 
     });
 
     await page.goto("/");
+    await useSourceEditor(page);
     await page
         .getByLabel("Markdown editor")
         .fill("```js\nconst value = 1;\n```\n\n<em>Safe markup</em>");
@@ -655,6 +687,7 @@ test("shares one KaTeX runtime between inline editing and the preview", async ({
     });
 
     await page.goto("/");
+    await useSourceEditor(page);
     await page.getByLabel("Markdown editor").fill("$x^2 + 1$");
     await expect(page.locator(".preview__flow .katex")).toHaveCount(1);
     await page.getByRole("button", { name: "Inline" }).click();
@@ -665,6 +698,7 @@ test("shares one KaTeX runtime between inline editing and the preview", async ({
 
 test("opens the shortcut overlay and closes it with Escape", async ({ page }) => {
     await page.goto("/");
+    await useSourceEditor(page);
     await page.keyboard.press("Control+/");
     const overlay = page.getByRole("dialog", { name: "Keyboard shortcuts" });
     await expect(overlay).toBeVisible();
@@ -675,6 +709,7 @@ test("opens the shortcut overlay and closes it with Escape", async ({ page }) =>
 
 test("resizes the split with the keyboard", async ({ page }) => {
     await page.goto("/");
+    await useSourceEditor(page);
     const divider = page.getByRole("separator");
     await divider.focus();
     const before = await divider.getAttribute("aria-valuenow");
@@ -686,6 +721,7 @@ test("resizes the split with the keyboard", async ({ page }) => {
 
 test("applies page setup changes to the preview", async ({ page }) => {
     await page.goto("/");
+    await useSourceEditor(page);
     const long = Array.from(
         { length: 140 },
         (_, index) => `Paragraph ${index + 1} with enough words to fill a line of text.`
@@ -723,6 +759,7 @@ test("applies page setup changes to the preview", async ({ page }) => {
 
 test("toggles between the light and dark theme", async ({ page }) => {
     await page.goto("/");
+    await useSourceEditor(page);
     const root = page.locator("html");
     const first = await root.getAttribute("data-theme");
     expect(first === "light" || first === "dark").toBe(true);
@@ -773,6 +810,7 @@ test("exports HTML through the format menu", async ({ page }) => {
 
 test("navigates between pages with the keyboard", async ({ page }) => {
     await page.goto("/");
+    await useSourceEditor(page);
     const long = Array.from(
         { length: 90 },
         (_, index) => `Paragraph ${index + 1} with a few words.`
@@ -792,6 +830,7 @@ test("navigates between pages with the keyboard", async ({ page }) => {
 
 test("breaks content across pages at block boundaries", async ({ page }) => {
     await page.goto("/");
+    await useSourceEditor(page);
     const long = Array.from(
         { length: 90 },
         (_, index) => `## Heading ${index + 1}\n\nBody text.`
@@ -821,6 +860,7 @@ test("breaks content across pages at block boundaries", async ({ page }) => {
 test("stacks the panes below 900px and toggles between them", async ({ page }) => {
     await page.setViewportSize({ width: 700, height: 800 });
     await page.goto("/");
+    await useSourceEditor(page);
     await expect(page.locator(".app--stacked")).toHaveCount(1);
     await expect(page.locator(".pane--editor")).toBeVisible();
     await expect(page.locator(".pane--preview")).toBeHidden();
@@ -841,6 +881,7 @@ test("passes an automated accessibility scan", async ({ page }) => {
 
 async function scan(page: Page): Promise<string[]> {
     await page.goto("/");
+    await useSourceEditor(page);
     const editor = page.getByLabel("Markdown editor");
     await editor.fill(SAMPLE);
     await expect(page.locator(".preview__flow h1")).toHaveText("Release notes");
@@ -875,6 +916,7 @@ test("renders the Chinese-cities calculus sample without losing math or table la
         "utf8"
     );
     await page.goto("/");
+    await useSourceEditor(page);
     await page.getByLabel("Markdown editor").fill(source);
 
     const preview = page.locator(".preview__flow");

@@ -9,7 +9,7 @@ import {
 } from "solid-js";
 
 import type { ApplicationContext } from "../../ApplicationContext";
-import { PAGE_SIZES, PX_PER_MM, pageHeightPt, type PageSetup } from "../../domain/PageSetup";
+import { pageDimensions, PX_PER_MM, pageHeightPt, type PageSetup } from "../../domain/PageSetup";
 import { fontStack } from "../../domain/pdf/PdfMetrics";
 import type { DrawOp, LaidOut } from "../../domain/pdf/PdfLayout";
 import { parseBlocks } from "../../domain/pdf/PdfLayout";
@@ -421,7 +421,7 @@ function createEmptyState(): HTMLParagraphElement {
 }
 
 function pagePixels(settings: PageSetup): { width: number; height: number } {
-    const size = PAGE_SIZES[settings.pageSize];
+    const size = pageDimensions(settings);
     return {
         width: Math.round(size.widthMm * PX_PER_MM),
         height: Math.round(size.heightMm * PX_PER_MM)

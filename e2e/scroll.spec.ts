@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 test("scrolls through the pages of a long document", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/");
+    await page.getByRole("button", { name: "Source", exact: true }).click();
     const long = Array.from(
         { length: 90 },
         (_, index) => `Paragraph ${index + 1} with enough words to fill a line of text.`

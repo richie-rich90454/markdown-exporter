@@ -1,4 +1,8 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+async function useSourceEditor(page: Page): Promise<void> {
+    await page.getByRole("button", { name: "Source", exact: true }).click();
+}
 
 // A first document in the shape of a real README: code, tables, headings.
 const FIRST = [
@@ -48,6 +52,7 @@ const SECOND = [
 test("replaces a whole document without leaving the previous one behind", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/");
+    await useSourceEditor(page);
     const editor = page.getByLabel("Markdown editor");
 
     await editor.fill(FIRST);
@@ -72,6 +77,7 @@ test("replaces a whole document without leaving the previous one behind", async 
 test("keeps the second document intact across a settings and theme change", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/");
+    await useSourceEditor(page);
     const editor = page.getByLabel("Markdown editor");
 
     await editor.fill(FIRST);

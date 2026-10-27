@@ -1,9 +1,11 @@
-export type PageSizeId = "a4" | "letter" | "legal";
+export type PageSizeId = "a4" | "a5" | "six-by-nine" | "letter" | "legal" | "custom";
 export type FontFamilyId = "serif" | "sans" | "mono";
 export type ThemeId = "light" | "dark";
 
 export interface PageSetup {
     readonly pageSize: PageSizeId;
+    readonly customWidthMm?: number;
+    readonly customHeightMm?: number;
     readonly marginMm: number;
     readonly fontFamily: FontFamilyId;
     readonly fontSizePt: number;
@@ -17,8 +19,11 @@ export const PAGE_SIZES: Readonly<
     >
 > = {
     a4: { label: "A4", widthMm: 210, heightMm: 297 },
+    a5: { label: "A5", widthMm: 148, heightMm: 210 },
+    "six-by-nine": { label: "6 × 9 in", widthMm: 152.4, heightMm: 228.6 },
     letter: { label: "Letter", widthMm: 215.9, heightMm: 279.4 },
-    legal: { label: "Legal", widthMm: 215.9, heightMm: 355.6 }
+    legal: { label: "Legal", widthMm: 215.9, heightMm: 355.6 },
+    custom: { label: "Custom", widthMm: 152.4, heightMm: 228.6 }
 };
 
 export const MARGIN_OPTIONS: readonly number[] = [10, 20, 30];
@@ -34,11 +39,24 @@ export const PX_PER_MM = 96 / 25.4;
 export const HEADING_SCALE = 1.25;
 
 export function pageWidthPt(setup: PageSetup): number {
-    return PAGE_SIZES[setup.pageSize].widthMm * PT_PER_MM;
+    return pageDimensions(setup).widthMm * PT_PER_MM;
 }
 
 export function pageHeightPt(setup: PageSetup): number {
-    return PAGE_SIZES[setup.pageSize].heightMm * PT_PER_MM;
+    return pageDimensions(setup).heightMm * PT_PER_MM;
+}
+
+export function pageDimensions(setup: PageSetup): { readonly widthMm: number; readonly heightMm: number } {
+    if (setup.pageSize !== "custom") return PAGE_SIZES[setup.pageSize];
+    const fallback = PAGE_SIZES.custom;
+    return {
+        widthMm: boundedDimension(setup.customWidthMm, fallback.widthMm),
+        heightMm: boundedDimension(setup.customHeightMm, fallback.heightMm)
+    };
+}
+
+function boundedDimension(value: number | undefined, fallback: number): number {
+    return value !== undefined && Number.isFinite(value) ? Math.max(80, Math.min(500, value)) : fallback;
 }
 
 export function marginPt(setup: PageSetup): number {

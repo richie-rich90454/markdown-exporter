@@ -10,6 +10,8 @@ import {
 
 const DEFAULT_SETUP: PageSetup = {
     pageSize: "a4",
+    customWidthMm: 152.4,
+    customHeightMm: 228.6,
     marginMm: 20,
     fontFamily: "serif",
     fontSizePt: 11,
