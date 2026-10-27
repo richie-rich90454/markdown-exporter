@@ -65,8 +65,9 @@ export default tseslint.config(
     {
         // The lint config is plain JavaScript and not part of the app project,
         // so it is parsed without type information.
-        files: ["eslint.config.js"],
-        extends: [tseslint.configs.disableTypeChecked]
+        files: ["eslint.config.js", "public/**/*.js", "scripts/**/*.mjs"],
+        extends: [tseslint.configs.disableTypeChecked],
+        languageOptions: { globals: { ...globals.node } }
     },
     {
         files: ["tests/**/*.ts", "playwright/**/*.ts"],

@@ -2,7 +2,7 @@
 
 This is the fixed compatibility target for the local editor. It combines CommonMark, GFM, and the syntax documented by Typora. It is a project snapshot, not a promise to track future Typora changes automatically.
 
-Legend: **Supported** means the syntax is parsed and rendered; **Partial** marks a known output limitation that is surfaced to the user.
+Legend: a checked item is implemented by the shared preview renderer. It does not mean that every item has complete rich-editor and every-export fixture coverage. **Partial** marks a known output limitation. The editor and exporter regression matrices are being expanded alongside implementation.
 
 ## CommonMark and GFM
 
@@ -42,15 +42,26 @@ Legend: **Supported** means the syntax is parsed and rendered; **Partial** marks
 
 ## Files, recovery, and performance
 
-- [x] CodeMirror 6 source mode is the default
-- [x] Inline decorations and KaTeX widgets use the same editor state and undo history
+- [x] Milkdown/ProseMirror rich editing opens by default; CodeMirror 6 source and inline modes remain available
+- [x] The CodeMirror modes share one source document and history; rich editing is synchronized through the same document store
+- [ ] Rich mode has exact source-preserving round trips for every unsupported extension; use Source mode for unfamiliar or unsupported syntax
 - [x] Open and save individual local files when the browser supports file handles
 - [x] Local folder sidebar with Markdown file discovery and open/save
+- [x] Ordered book sections, metadata, local references, rename/reorder/delete, outline, word counts, and manuscript-wide search/replace
+- [x] Versioned `book.json` folders and `.mdbook` ZIP packages with path and expanded-size validation
 - [x] File input and download fallbacks for browsers without local file handles
-- [x] Draft recovery stays on-device using IndexedDB, with localStorage fallback
+- [x] Current Markdown and the complete book project recover on-device through IndexedDB, with localStorage fallback
 - [x] KaTeX and Mermaid JavaScript load only when the corresponding feature is used
 - [x] Inline editor decorations stay near visible ranges, with full-document fence and delimiter context
 - [x] Preview canvas pages outside the visible region are released and repainted when needed
+- [x] PDF, standalone HTML, EPUB 3, and DOCX exports are loaded only when selected
+- [x] PDF, HTML, EPUB, and DOCX exports include the ordered book sections; the live paginated preview still shows the active section
+- [x] PDF book exports include page numbers and running book-title headers
+- [ ] PDF TOC links, full cross-browser rich editing, automated EPUBCheck, and a 100,000-word responsiveness benchmark are not yet verified
+
+## Regression fixtures
+
+The automated suite includes fixtures for the reported math, PDF layout, multilingual PDF text, local file recovery, book archives, EPUB/DOCX packages, chapter breaks, page-size geometry, and local citation output. It does not yet execute every checklist item through every editor mode and all four exporters. This is an explicit coverage gap, not a claim that the full Typora compatibility matrix has passed.
 
 ## References
 

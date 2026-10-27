@@ -2,27 +2,6 @@
 import { defineConfig, type Plugin } from "vite";
 import solid from "vite-plugin-solid";
 
-// Cookie-less Cloudflare Web Analytics (~11 KB) is only added when a token is
-// supplied at build time: CLOUDFLARE_ANALYTICS_TOKEN=... pnpm run build
-function cloudflareBeacon(): Plugin {
-    return {
-        name: "cloudflare-beacon",
-        transformIndexHtml(html, context) {
-            if (context.bundle === undefined) {
-                return html;
-            }
-            const token = process.env.CLOUDFLARE_ANALYTICS_TOKEN;
-            if (token === undefined || token.length === 0) {
-                return html;
-            }
-            const beacon =
-                `<script defer src="https://static.cloudflareinsights.com` +
-                `/static-cloudflareinsights/beacon.min.js" data-cf-beacon='{"token":"${token}"}'></script>`;
-            return html.replace("</body>", `    ${beacon}\n    </body>`);
-        }
-    };
-}
-
 // The dev server injects inline scripts and styles for HMR, and the test
 // build needs to load axe-core, so the policy is only shipped in ordinary
 // production builds.
@@ -43,7 +22,7 @@ function contentSecurityPolicy(): Plugin {
                 "style-src 'self' 'unsafe-inline'",
                 "img-src 'self' data: blob:",
                 "font-src 'self' data:",
-                "connect-src 'self' https://cloudflareinsights.com https://static.cloudflareinsights.com",
+                "connect-src 'self' blob:",
                 "form-action 'none'",
                 "base-uri 'none'",
                 "object-src 'none'",
@@ -62,7 +41,7 @@ export default defineConfig({
     // from a project page such as username.github.io/markdown-exporter, and a
     // fixed base only works for one of the two.
     base: "./",
-    plugins: [solid(), cloudflareBeacon(), contentSecurityPolicy()],
+    plugins: [solid(), contentSecurityPolicy()],
     resolve: {
         // Mermaid and the editor/Markdown renderer depend on KaTeX through
         // different package ranges; resolve them to one runtime copy.
