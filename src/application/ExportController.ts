@@ -5,6 +5,7 @@ import type { ExportResult } from "../domain/ExportResult";
 import { ExportResults } from "../domain/ExportResult";
 import type { RenderedDocument } from "../domain/RenderedDocument";
 import type { PageSetup } from "../domain/PageSetup";
+import type { BookProject } from "../domain/BookProject";
 import type { ExporterRegistry } from "../port/ExporterRegistry";
 
 export class ExportController {
@@ -18,14 +19,26 @@ export class ExportController {
         format: ExportFormat,
         rendered: RenderedDocument,
         content: Node,
-        pageSetup: PageSetup
+        pageSetup: PageSetup,
+        bookProject?: BookProject,
+        renderSource?: (source: string) => Promise<Node>
     ): Promise<ExportResult> {
         const exporter = this.registry.lookup(format);
         if (exporter === undefined) {
             const label = EXPORT_FORMAT_LABELS[format];
             return ExportResults.failure(format, `No exporter is registered for ${label}.`);
         }
-        const request = new ExportRequest(format, rendered, rendered.title, content, pageSetup);
+        const request = new ExportRequest(
+            format,
+            rendered,
+            bookProject !== undefined && bookProject.manifest.entries.length > 1
+                ? bookProject.manifest.metadata.title
+                : rendered.title || "",
+            content,
+            pageSetup,
+            bookProject,
+            renderSource
+        );
         try {
             return await exporter.export(request);
         } catch (error) {

@@ -6,6 +6,8 @@ import { ExportRequest } from "../../src/domain/ExportRequest";
 import type { PageSetup } from "../../src/domain/PageSetup";
 import { RenderedDocument } from "../../src/domain/RenderedDocument";
 import type { FileSaver } from "../../src/port/FileSaver";
+import { createSingleChapterBook } from "../../src/domain/BookProject";
+import { pageWidthPt } from "../../src/domain/PageSetup";
 
 const SETUP: PageSetup = {
     pageSize: "a4",
@@ -111,6 +113,50 @@ describe("PdfExporter", () => {
         const pageCount = [...bytes.matchAll(/\/Type \/Page[^s]/g)].length;
         expect(pageCount).toBeGreaterThan(1);
         expect(bytes).toContain("(1 / ");
+    });
+
+    it("exports all ordered book chapters with a title page and chapter breaks", async () => {
+        const base = createSingleChapterBook("First chapter body.", "A whole book");
+        const project = {
+            ...base,
+            manifest: {
+                ...base.manifest,
+                metadata: { ...base.manifest.metadata, subtitle: "A subtitle", authors: ["A. Writer"] },
+                entries: [
+                    { ...base.manifest.entries[0]!, title: "First chapter" },
+                    { id: "chapter-2", role: "chapter" as const, path: "chapters/chapter-2.md", title: "Second chapter" }
+                ]
+            },
+            files: { ...base.files, "chapters/chapter-2.md": "Second chapter body." }
+        };
+        const source = document.createDocumentFragment();
+        const saver = new MemorySaver();
+        const exportRequest = new ExportRequest(
+            ExportFormat.PDF,
+            new RenderedDocument(source.cloneNode(true) as DocumentFragment, "A whole book", 0),
+            "A whole book",
+            source,
+            SETUP,
+            project,
+            (markdown) => {
+                const fragment = document.createDocumentFragment();
+                const paragraph = document.createElement("p");
+                paragraph.textContent = markdown;
+                fragment.append(paragraph);
+                return Promise.resolve(fragment);
+            }
+        );
+        await new PdfExporter(saver).export(exportRequest);
+        const bytes = new TextDecoder("latin1").decode(new Uint8Array(await saver.blobs[0]!.blob.arrayBuffer()));
+        expect(bytes).toContain("A subtitle");
+        expect(bytes).toContain("First chapter body.");
+        expect(bytes).toContain("Second chapter body.");
+        expect(bytes).toMatch(/BT \/F\d+ 8 Tf [\d.]+ [\d.]+ Td \(A whole book\) Tj ET/);
+        expect([...bytes.matchAll(/\/Type \/Page[^s]/g)]).toHaveLength(4);
+    });
+
+    it("uses custom trim dimensions for PDF page geometry", () => {
+        expect(pageWidthPt({ ...SETUP, pageSize: "custom", customWidthMm: 160 })).toBeCloseTo(160 * 72 / 25.4);
     });
 
     it("keeps a tall block quote inside the page box", async () => {

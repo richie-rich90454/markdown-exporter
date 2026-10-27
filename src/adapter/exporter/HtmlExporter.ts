@@ -5,6 +5,9 @@ import { ExportResults } from "../../domain/ExportResult";
 import type { DocumentExporter } from "../../port/DocumentExporter";
 import type { FileSaver } from "../../port/FileSaver";
 import { HtmlEscaper } from "../../util/HtmlEscaper";
+import { createBookTitlePage, renderBookSections, resolveBookImageReferences } from "./BookExportContent";
+import { pageDimensions } from "../../domain/PageSetup";
+import { addCitationReferences } from "./CitationPublisher";
 
 const STYLESHEET = [
     "body{margin:0;padding:24px;background:#fff;color:#0a0a0a;font:16px/1.6 Georgia,'Times New Roman',serif}",
@@ -27,6 +30,7 @@ const STYLESHEET = [
     ".markdown-diagram{display:block;width:100%;max-height:720px;margin:1em auto;overflow:visible}",
     ".diagram-error__message{margin:0 0 .5em;color:#b42318;font-size:.875em}",
     "img{max-width:100%}",
+    ".book-title-page{min-height:70vh;display:grid;align-content:center;justify-items:center;text-align:center;break-after:page}.book-title-page h1{font-size:2.6em}.book-cover{max-width:min(100%, 16rem);max-height:40vh;object-fit:contain}.book-subtitle{font-size:1.25em}.book-authors{margin-top:2em}.book-table-of-contents{break-after:page}.book-chapter{break-before:page;page-break-before:always}.generated-references{break-before:page}.csl-entry{margin:0 0 .75em 2em;text-indent:-2em}",
     ".offline-image-fallback{display:inline-block;padding:.25em .5em;border:1px solid #e4e4e4;color:#6b6b6b;font: .875em/1.4 ui-sans-serif,system-ui,sans-serif}",
     "hr{border:none;border-top:1px solid #e4e4e4}"
 ].join("\n");
@@ -40,26 +44,64 @@ export class HtmlExporter implements DocumentExporter {
         if (request.format !== this.supportedFormat) {
             throw new Error(`HtmlExporter cannot export ${request.format}`);
         }
-        const content = request.content.cloneNode(true);
-        await embedImages(content);
-        const body = new XMLSerializer().serializeToString(content);
-        const contentRoot = request.content;
-        const hasMath =
-            (contentRoot instanceof Element || contentRoot instanceof DocumentFragment) &&
-            contentRoot.querySelector(".katex") !== null;
+        const sections = await renderBookSections(request);
+        await addCitationReferences(sections, request.bookProject);
+        const isBook = (request.bookProject?.manifest.entries.length ?? 0) > 1;
+        const root = document.createElement("main");
+        if (isBook) {
+            root.append(createBookTitlePage(request.bookProject, request.title));
+            root.append(createTableOfContents(sections));
+        }
+        for (const [index, section] of sections.entries()) {
+            resolveBookImageReferences(section.content, request.bookProject, section.entry?.path);
+            const wrapper = document.createElement("section");
+            wrapper.className = section.entry?.role === "chapter" && index > 0 ? "book-chapter" : "book-section";
+            wrapper.id = `section-${index + 1}`;
+            if (section.content instanceof DocumentFragment) wrapper.append(section.content);
+            else wrapper.append(section.content.cloneNode(true));
+            root.append(wrapper);
+        }
+        await embedImages(root);
+        const body = new XMLSerializer().serializeToString(root);
+        const contentRoot = root;
+        const hasMath = contentRoot.querySelector(".katex") !== null;
         const katexStyles = !hasMath
             ? ""
             : await (await import("./KatexAssets")).katexStylesWithEmbeddedFonts(contentRoot);
-        const styles = `${STYLESHEET}\n${katexStyles}\n.katex-error{color:#b42318}`;
+        const dimensions = pageDimensions(request.pageSetup);
+        const styles = `${STYLESHEET}\n@page{size:${dimensions.widthMm}mm ${dimensions.heightMm}mm;margin:${request.pageSetup.marginMm}mm}\n${katexStyles}\n.katex-error{color:#b42318}`;
+        const metadata = request.bookProject?.manifest.metadata;
+        const authors = metadata?.authors.map((author) => `<meta name="author" content="${HtmlEscaper.escape(author)}">`).join("\n") ?? "";
         const html =
             `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n` +
             `<meta name="viewport" content="width=device-width, initial-scale=1">\n` +
+            `<meta name="description" content="${HtmlEscaper.escape(metadata?.description ?? "")}">\n${authors}\n` +
+            `<meta name="language" content="${HtmlEscaper.escape(metadata?.language ?? "en")}">\n` +
             `<title>${HtmlEscaper.escape(request.title || "Document")}</title>\n` +
             `<style>\n${styles}\n</style>\n</head>\n<body>\n${body}\n</body>\n</html>\n`;
         const blob = new Blob([html], { type: "text/html;charset=utf-8" });
         this.fileSaver.saveBlob(blob, `${slug(request.title)}.html`);
         return ExportResults.success(this.supportedFormat);
     }
+}
+
+function createTableOfContents(sections: Awaited<ReturnType<typeof renderBookSections>>): HTMLElement {
+    const nav = document.createElement("nav");
+    nav.className = "book-table-of-contents";
+    nav.setAttribute("aria-label", "Table of contents");
+    const heading = document.createElement("h1");
+    heading.textContent = "Contents";
+    const list = document.createElement("ol");
+    for (const [index, section] of sections.entries()) {
+        const item = document.createElement("li");
+        const link = document.createElement("a");
+        link.href = `#section-${index + 1}`;
+        link.textContent = section.title;
+        item.append(link);
+        list.append(item);
+    }
+    nav.append(heading, list);
+    return nav;
 }
 
 async function embedImages(content: Node): Promise<void> {

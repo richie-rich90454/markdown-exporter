@@ -4,13 +4,15 @@ import { ExportFormat, EXPORT_FORMAT_LABELS } from "../../src/domain/ExportForma
 import { ExportResults, isExportSuccess } from "../../src/domain/ExportResult";
 
 describe("ExportFormat", () => {
-    it("ships PDF and HTML", () => {
-        expect(Object.values(ExportFormat)).toEqual(["pdf", "html"]);
+    it("ships PDF, HTML, EPUB, and Word formats", () => {
+        expect(Object.values(ExportFormat)).toEqual(["pdf", "html", "epub", "docx"]);
     });
 
     it("labels every format", () => {
         expect(EXPORT_FORMAT_LABELS[ExportFormat.PDF]).toBe("PDF");
         expect(EXPORT_FORMAT_LABELS[ExportFormat.HTML]).toBe("HTML");
+        expect(EXPORT_FORMAT_LABELS[ExportFormat.EPUB]).toBe("EPUB");
+        expect(EXPORT_FORMAT_LABELS[ExportFormat.DOCX]).toBe("Word document");
     });
 });
 

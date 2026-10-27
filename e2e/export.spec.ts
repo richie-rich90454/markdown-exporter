@@ -46,6 +46,10 @@ const DOC = [
     "> Local only."
 ].join("\n");
 
+async function useSourceEditor(page: Page): Promise<void> {
+    await page.getByRole("button", { name: "Source", exact: true }).click();
+}
+
 async function exportPdf(page: Page, name = "chemistry-utility.pdf"): Promise<string> {
     const download = page.waitForEvent("download", { timeout: 25000 });
     await page.getByRole("button", { name: /^Export/ }).click();
@@ -67,6 +71,7 @@ test("PDF math downloads only the KaTeX font faces used by the document", async 
     });
 
     await page.goto("/");
+    await useSourceEditor(page);
     await page.getByLabel("Markdown editor").fill("$$\\sum_{i=1}^n i^2$$");
     await expect(page.locator(".preview__flow .katex")).toHaveCount(1);
 
@@ -79,6 +84,7 @@ test("PDF math downloads only the KaTeX font faces used by the document", async 
 
 test("offline HTML math embeds only the font faces it uses", async ({ page }) => {
     await page.goto("/");
+    await useSourceEditor(page);
     await page.getByLabel("Markdown editor").fill("# Math\n\n\\(x^2 + 1\\)");
     await expect(page.locator(".preview__flow .katex")).toHaveCount(1);
 
@@ -114,6 +120,7 @@ test("exports all equations from the copied Chinese-cities sample to PDF and off
         "utf8"
     );
     await page.goto("/");
+    await useSourceEditor(page);
     await page.getByLabel("Markdown editor").fill(source);
     await expect(page.locator(".preview__flow .katex-display .katex")).toHaveCount(6);
 
@@ -168,6 +175,7 @@ test("renders the documented Mermaid families into preview and PDF", async ({ pa
         .join("\n\n");
 
     await page.goto("/");
+    await useSourceEditor(page);
     await page.getByLabel("Markdown editor").fill(source);
     await expect
         .poll(
@@ -197,6 +205,7 @@ test("renders the documented Mermaid families into preview and PDF", async ({ pa
 
 test("exports every block type of a real document", async ({ page }) => {
     await page.goto("/");
+    await useSourceEditor(page);
     await page.getByLabel("Markdown editor").fill(DOC);
     await expect(page.locator(".preview__flow blockquote p")).toHaveCount(2);
 
@@ -255,6 +264,7 @@ test("embeds a decodable image and boxes an unreachable one", async ({ page }) =
     });
 
     await page.goto("/");
+    await useSourceEditor(page);
     await page.getByLabel("Markdown editor").fill(DOC);
     await expect.poll(async () => page.locator(".preview__flow img").count()).toBe(2);
 
@@ -271,6 +281,7 @@ test("embeds a decodable image and boxes an unreachable one", async ({ page }) =
 
 test("keeps the flow intact when a big block was split", async ({ page }) => {
     await page.goto("/");
+    await useSourceEditor(page);
     const editor = page.getByLabel("Markdown editor");
     await editor.fill(DOC);
 
@@ -288,6 +299,7 @@ test("keeps the flow intact when a big block was split", async ({ page }) => {
 test("breaks the preview and the exported file on the same pages", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/");
+    await useSourceEditor(page);
     await page.getByLabel("Markdown editor").fill(DOC);
 
     const frames = page.locator(".page-frame");
@@ -334,6 +346,7 @@ function runFont(pdf: string, text: string): string | undefined {
 
 test("typesets emphasis with the matching base fonts", async ({ page }) => {
     await page.goto("/");
+    await useSourceEditor(page);
     const editor = page.getByLabel("Markdown editor");
     await editor.fill("# Heading\n\nPlain **bold** and *italic* with `code`.");
     // The export needs a finished render, so wait for the document itself.
@@ -357,6 +370,7 @@ test("typesets emphasis with the matching base fonts", async ({ page }) => {
 
 test("embeds selectable KaTeX glyphs and preserves the source text in PDF", async ({ page }) => {
     await page.goto("/");
+    await useSourceEditor(page);
     await page
         .getByLabel("Markdown editor")
         .fill("# Math export\n\n$$\n\\frac{1}{2}+x^2=\\sqrt{y}\n$$\n\nFollowing text.");
@@ -376,6 +390,7 @@ test("embeds selectable KaTeX glyphs and preserves the source text in PDF", asyn
 
 test("keeps PDF math geometry independent of the preview zoom", async ({ page }) => {
     await page.goto("/");
+    await useSourceEditor(page);
     await page
         .getByLabel("Markdown editor")
         .fill("Inline $\\frac{a}{b}+x^2$ and display:\n\n\\[\\sqrt{y}+\\frac{1}{2}\\]");
@@ -394,6 +409,7 @@ test("fits an oversized equation to the page and keeps PDF pagination aligned", 
     page
 }) => {
     await page.goto("/");
+    await useSourceEditor(page);
     const wideFormula = Array.from(
         { length: 180 },
         (_, index) => `x_{${index}}+\\frac{y_{${index}}}{z_{${index}}+1}`

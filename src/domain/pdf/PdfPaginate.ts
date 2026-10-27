@@ -146,6 +146,10 @@ function place(
     embeds: ReadonlyMap<string, boolean>,
     firstOnPage = false
 ): void {
+    if (block.kind === "pageBreak") {
+        if (cursor.y < cursor.top) cursor.newPage();
+        return;
+    }
     // Blocks keep their own breathing room, the way a styled document does,
     // except at the top of a page where a gap would just waste space.
     if (!firstOnPage) {
@@ -245,6 +249,8 @@ function gapFor(block: Block, cursor: Cursor): number {
             return line * 0.75;
         case "rule":
             return line * 0.75;
+        case "pageBreak":
+            return 0;
         case "list":
             return line * 0.6;
     }

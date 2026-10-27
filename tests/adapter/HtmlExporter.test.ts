@@ -6,6 +6,7 @@ import { ExportRequest } from "../../src/domain/ExportRequest";
 import type { PageSetup } from "../../src/domain/PageSetup";
 import { RenderedDocument } from "../../src/domain/RenderedDocument";
 import type { FileSaver } from "../../src/port/FileSaver";
+import { createSingleChapterBook } from "../../src/domain/BookProject";
 
 const SETUP: PageSetup = {
     pageSize: "a4",
@@ -124,5 +125,45 @@ describe("HtmlExporter", () => {
         expect(html).not.toContain("https://example.com/diagram.png");
         expect(html).toContain('class="offline-image-fallback"');
         expect(html).toContain("Image unavailable offline: A diagram");
+    });
+
+    it("exports ordered chapters, book metadata, and the chosen print trim size", async () => {
+        const base = createSingleChapterBook("First chapter body.", "A local book");
+        const project = {
+            ...base,
+            manifest: {
+                ...base.manifest,
+                metadata: { ...base.manifest.metadata, subtitle: "Short subtitle", authors: ["A. Writer"] },
+                entries: [
+                    { ...base.manifest.entries[0]!, title: "Opening" },
+                    { id: "chapter-2", role: "chapter" as const, path: "chapters/chapter-2.md", title: "Next" }
+                ]
+            },
+            files: { ...base.files, "chapters/chapter-2.md": "Second chapter body." }
+        };
+        const content = document.createElement("div");
+        const saver = new MemorySaver();
+        const exportRequest = new ExportRequest(
+            ExportFormat.HTML,
+            new RenderedDocument(content.cloneNode(true) as DocumentFragment, "A local book", 0),
+            "A local book",
+            content,
+            { ...SETUP, pageSize: "six-by-nine" },
+            project,
+            (source) => {
+                const fragment = document.createDocumentFragment();
+                const paragraph = document.createElement("p");
+                paragraph.textContent = source;
+                fragment.append(paragraph);
+                return Promise.resolve(fragment);
+            }
+        );
+        await new HtmlExporter(saver).export(exportRequest);
+        const html = await saver.blob?.text();
+        expect(html).toContain("Opening");
+        expect(html).toContain("Second chapter body.");
+        expect(html).toContain("A. Writer");
+        expect(html).toContain("size:152.4mm 228.6mm");
+        expect(html).toContain("href=\"#section-2\"");
     });
 });

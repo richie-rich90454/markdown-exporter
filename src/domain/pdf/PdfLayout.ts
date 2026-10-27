@@ -36,7 +36,8 @@ export type Block =
           readonly width: number;
           readonly height: number;
       }
-    | { readonly kind: "rule" };
+    | { readonly kind: "rule" }
+    | { readonly kind: "pageBreak" };
 
 export type DrawOp =
     | {
@@ -160,6 +161,7 @@ function parseBlock(node: Node): Block | null {
     if (SKIP_TAGS.has(element.tagName) || element.classList.contains("page-spacer")) {
         return null;
     }
+    if (element.classList.contains("book-page-break")) return { kind: "pageBreak" };
     if (element.classList.contains("katex-display")) {
         const math = readMathLayout(element.querySelector<HTMLElement>(".katex") ?? element);
         if (math !== null) return { kind: "math", math };
@@ -240,7 +242,11 @@ function parseFlow(
             ...Array.from(child.querySelectorAll("img, svg"))
         ];
     });
-    if (images.length === 0) {
+    const containsNestedBlocks = nodes.some(
+        (node) => node.nodeType === Node.ELEMENT_NODE &&
+            (isBlockTag((node as HTMLElement).tagName) || /^H[1-6]$/.test((node as HTMLElement).tagName))
+    );
+    if (images.length === 0 && !containsNestedBlocks) {
         const runs = inlineRuns(element, nodes);
         return runs.length === 0 ? null : { kind: "paragraph", runs };
     }
@@ -346,6 +352,7 @@ function parseListItem(item: HTMLElement): Block[] {
 
 function isBlockTag(tag: string): boolean {
     return (
+        /^H[1-6]$/.test(tag) ||
         tag === "P" ||
         tag === "DIV" ||
         tag === "PRE" ||

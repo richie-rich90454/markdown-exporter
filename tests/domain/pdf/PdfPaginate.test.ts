@@ -46,6 +46,16 @@ function repeated(count: number, build: (index: number) => string): string {
 }
 
 describe("page geometry", () => {
+    it("starts a new page at an explicit book chapter break without a blank page", () => {
+        const host = document.createElement("div");
+        host.innerHTML = '<h1>Chapter one</h1><p>First section.</p><div class="book-page-break"></div><h1>Chapter two</h1><p>Second section.</p>';
+        const paginated = paginate(parseBlocks(host), SETUP, new Map());
+        expect(paginated.pages).toHaveLength(2);
+        expect(texts(paginated.pages[0] ?? []).map((op) => op.text).join(" ")).toContain("First section.");
+        expect(texts(paginated.pages[0] ?? []).map((op) => op.text).join(" ")).not.toContain("Chapter two");
+        expect(texts(paginated.pages[1] ?? []).map((op) => op.text).join(" ")).toContain("Chapter two");
+    });
+
     it("keeps every run inside the margins of its page", () => {
         const doc = layout(
             `<h1>Heading one</h1><p>${repeated(400, (index) => `Word ${index} of the body text. `)}</p>` +
