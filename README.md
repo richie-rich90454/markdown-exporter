@@ -15,7 +15,7 @@ A local-first Markdown writing and publishing app for the browser. Documents sta
 - PDF keeps selectable text, searchable math, page numbers, running book-title headers, and book title and contents pages.
 - Standalone HTML embeds its styles, math fonts, and local images for offline use.
 - EPUB 3 includes navigation, metadata, local assets, math output, and optional generated references.
-- DOCX preserves semantic headings, tables, page breaks, and MathML equations where the browser renderer provides them.
+- DOCX preserves semantic headings, tables, page breaks, MathML equations where supported, selected page dimensions and margins, running book-title headers, and page-number fields.
 - Local BibTeX and CSL files support cite-key markers such as `[@smith2020]`; APA is the default style. Manually authored references and footnotes remain Markdown content.
 
 For the supported Markdown syntax and known gaps, see the [conformance snapshot](docs/markdown-conformance.md). For the book folder and `.mdbook` schema, see [book project format](docs/book-project-format.md).

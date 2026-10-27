@@ -5,6 +5,7 @@ import type { ExportResult } from "../../domain/ExportResult";
 import { ExportResults } from "../../domain/ExportResult";
 import type { DocumentExporter } from "../../port/DocumentExporter";
 import type { FileSaver } from "../../port/FileSaver";
+import { pageDimensions } from "../../domain/PageSetup";
 import { createBookContentsPage, createBookTitlePage, renderBookSections, resolveBookImageReferences, serializeContent } from "./BookExportContent";
 import { addCitationReferences } from "./CitationPublisher";
 
@@ -21,7 +22,10 @@ export class DocxExporter implements DocumentExporter {
         const sections = await renderBookSections(request);
         await addCitationReferences(sections, project);
 
-        const [{ Document, Packer, Paragraph, PageBreak }, { htmlToContent }] = await Promise.all([
+        const [
+            { Document, Packer, Paragraph, PageBreak, AlignmentType, Header, Footer, PageNumberElement, TextRun },
+            { htmlToContent }
+        ] = await Promise.all([
             import("docx"),
             import("docx/html")
         ]);
@@ -52,13 +56,52 @@ export class DocxExporter implements DocumentExporter {
 
         const metadata = project?.manifest.metadata;
         const title = publicationTitle(project, request.title);
+        const dimensions = pageDimensions(request.pageSetup);
+        const toTwips = (millimeters: number): number => Math.round((millimeters * 1440) / 25.4);
+        const marginTwips = toTwips(request.pageSetup.marginMm);
+        const header = isBook
+            ? new Header({ children: [new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [new TextRun(title)]
+            })] })
+            : undefined;
+        const footer = new Footer({ children: [new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [new TextRun("Page "), new TextRun({ children: [new PageNumberElement()] })]
+        })] });
         const document = new Document({
             creator: metadata?.authors.join(", ") || "Markdown Exporter",
             title,
             ...(metadata?.description === undefined ? {} : { subject: metadata.description }),
             ...(metadata?.isbn === undefined ? {} : { keywords: `ISBN ${metadata.isbn}` }),
             ...(warnings.length === 0 ? {} : { description: warnings.join("\n") }),
-            sections: [{ children: documentChildren }]
+            sections: [{
+                ...(header === undefined ? {} : {
+                    headers: { default: header, first: new Header({ children: [] }) }
+                }),
+                footers: {
+                    default: footer,
+                    ...(isBook ? { first: new Footer({ children: [] }) } : {})
+                },
+                properties: {
+                    titlePage: isBook,
+                    page: {
+                        size: {
+                            width: toTwips(dimensions.widthMm),
+                            height: toTwips(dimensions.heightMm)
+                        },
+                        margin: {
+                            top: marginTwips,
+                            right: marginTwips,
+                            bottom: marginTwips,
+                            left: marginTwips,
+                            header: Math.min(720, Math.round(marginTwips / 2)),
+                            footer: Math.min(720, Math.round(marginTwips / 2))
+                        }
+                    }
+                },
+                children: documentChildren
+            }]
         });
         const blob = await Packer.toBlob(document);
         this.fileSaver.saveBlob(blob, `${slug(title)}.docx`);

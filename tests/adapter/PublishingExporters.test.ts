@@ -167,6 +167,10 @@ describe("publishing exporters", () => {
         expect(documentXml).toContain("First chapter");
         expect(documentXml).toContain("Second chapter");
         expect(documentXml).toContain("w:type=\"page\"");
+        expect(documentXml).toMatch(/<w:pgSz[^>]*w:w="11906"[^>]*w:h="16838"/);
+        expect(documentXml).toContain('w:pgMar w:top="1134"');
+        expect(new TextDecoder().decode(docx["word/header1.xml"])).toContain("A test book");
+        expect(new TextDecoder().decode(docx["word/footer1.xml"])).toContain("<w:pgNum/>");
         const core = new TextDecoder().decode(docx["docProps/core.xml"]);
         expect(core).toContain("A. Writer");
     });

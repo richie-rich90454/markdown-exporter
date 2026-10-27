@@ -57,6 +57,7 @@ Legend: a checked item is implemented by the shared preview renderer. It does no
 - [x] PDF, standalone HTML, EPUB 3, and DOCX exports are loaded only when selected
 - [x] PDF, HTML, EPUB, and DOCX exports include the ordered book sections; the live paginated preview still shows the active section
 - [x] PDF book exports include page numbers and running book-title headers
+- [x] DOCX book exports apply the selected trim size and margins, with running headers and page-number fields
 - [ ] PDF TOC links, full cross-browser rich editing, automated EPUBCheck, and a 100,000-word responsiveness benchmark are not yet verified
 
 ## Regression fixtures
