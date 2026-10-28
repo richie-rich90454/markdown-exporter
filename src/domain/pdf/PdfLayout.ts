@@ -13,7 +13,7 @@ export interface Run {
 }
 
 export type Block =
-    | { readonly kind: "heading"; readonly level: number; readonly runs: readonly Run[] }
+    | { readonly kind: "heading"; readonly level: number; readonly runs: readonly Run[]; readonly id?: string | undefined }
     | { readonly kind: "paragraph"; readonly runs: readonly Run[] }
     | { readonly kind: "math"; readonly math: MathLayout }
     | { readonly kind: "code"; readonly lines: readonly string[] }
@@ -89,6 +89,11 @@ export type DrawOp =
           readonly w: number;
           readonly h: number;
           readonly uri: string;
+      }
+    | {
+          readonly kind: "anchor";
+          readonly id: string;
+          readonly y: number;
       };
 
 export interface ImageRef {
@@ -176,7 +181,8 @@ function parseBlock(node: Node): Block | null {
             return {
                 kind: "heading",
                 level: Number(element.tagName.slice(1)),
-                runs: inlineRuns(element)
+                runs: inlineRuns(element),
+                id: element.id || undefined
             };
         case "P":
         case "DIV":

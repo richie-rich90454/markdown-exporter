@@ -151,6 +151,7 @@ describe("PdfExporter", () => {
         expect(bytes).toContain("A subtitle");
         expect(bytes).toContain("First chapter body.");
         expect(bytes).toContain("Second chapter body.");
+        expect(bytes).toMatch(/\/Subtype \/Link[^>]*\/Dest \[\d+ 0 R \/XYZ null [\d.]+ null\]/);
         expect(bytes).toMatch(/BT \/F\d+ 8 Tf [\d.]+ [\d.]+ Td \(A whole book\) Tj ET/);
         expect([...bytes.matchAll(/\/Type \/Page[^s]/g)]).toHaveLength(4);
     });

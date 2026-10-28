@@ -4,6 +4,7 @@ import type { ExportRequest } from "../../domain/ExportRequest";
 export interface RenderedBookSection {
     readonly entry: BookEntry | undefined;
     readonly title: string;
+    readonly anchorId: string;
     readonly content: Node;
 }
 
@@ -12,7 +13,7 @@ export async function renderBookSections(request: ExportRequest): Promise<Render
     const project = request.bookProject;
     const entries = project?.manifest.entries ?? [];
     if (project === undefined || entries.length === 0) {
-        return [{ entry: undefined, title: request.title || "Untitled manuscript", content: request.content.cloneNode(true) }];
+        return [{ entry: undefined, title: request.title || "Untitled manuscript", anchorId: "", content: request.content.cloneNode(true) }];
     }
     if (entries.length > 1 && request.renderSource === undefined) {
         throw new Error("The book cannot be exported because its Markdown renderer is unavailable.");
@@ -30,7 +31,8 @@ export async function renderBookSections(request: ExportRequest): Promise<Render
         sections.push({
             entry,
             title: entry.title,
-            content: entries.length > 1 ? withSectionHeading(rendered, entry.title) : rendered
+            anchorId: chapterAnchorId(entry.id),
+            content: entries.length > 1 ? withSectionHeading(rendered, entry.title, chapterAnchorId(entry.id)) : rendered
         });
     }
     return sections;
@@ -105,7 +107,10 @@ export function createBookContentsPage(sections: readonly RenderedBookSection[])
     const list = document.createElement("ol");
     for (const section of sections) {
         const item = document.createElement("li");
-        item.textContent = section.title;
+        const link = document.createElement("a");
+        link.href = `#${section.anchorId}`;
+        link.textContent = section.title;
+        item.append(link);
         list.append(item);
     }
     page.append(heading, list);
@@ -121,16 +126,25 @@ export function serializeContent(content: Node): string {
     return new XMLSerializer().serializeToString(content);
 }
 
-function withSectionHeading(content: Node, title: string): Node {
+export function chapterAnchorId(entryId: string): string {
+    const id = entryId.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+    return `book-chapter-${id || "untitled"}`;
+}
+
+function withSectionHeading(content: Node, title: string, anchorId: string): Node {
     if (!(content instanceof Element || content instanceof DocumentFragment)) return content;
     const children = Array.from(content.childNodes).filter(
         (node) => node.nodeType !== Node.TEXT_NODE || (node.textContent ?? "").trim().length > 0
     );
     const first = children.find((node) => node.nodeType === Node.ELEMENT_NODE) as HTMLElement | undefined;
-    if (first?.tagName === "H1" && first.textContent?.trim() === title.trim()) return content;
+    if (first?.tagName === "H1" && first.textContent?.trim() === title.trim()) {
+        first.id = anchorId;
+        return content;
+    }
 
     const section = document.createDocumentFragment();
     const heading = document.createElement("h1");
+    heading.id = anchorId;
     heading.textContent = title;
     section.append(heading);
     if (content instanceof DocumentFragment) section.append(content);

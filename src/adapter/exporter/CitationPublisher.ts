@@ -79,7 +79,7 @@ export async function addCitationReferences(
             diagnostic.textContent = `Unresolved citation keys: ${[...unresolved].join(", ")}. Their source markers remain visible.`;
             wrapper.append(diagnostic);
         }
-        sections.push({ entry: undefined, title: "References", content: wrapper });
+        sections.push({ entry: undefined, title: "References", anchorId: "", content: wrapper });
     } catch (error) {
         const diagnostic = document.createElement("section");
         diagnostic.className = "generated-references citation-error";
@@ -88,7 +88,7 @@ export async function addCitationReferences(
         const message = document.createElement("p");
         message.textContent = error instanceof Error ? error.message : "The local bibliography could not be read.";
         diagnostic.append(heading, message);
-        sections.push({ entry: undefined, title: "References", content: diagnostic });
+        sections.push({ entry: undefined, title: "References", anchorId: "", content: diagnostic });
     }
 }
 

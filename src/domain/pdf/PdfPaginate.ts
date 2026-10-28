@@ -186,6 +186,7 @@ function place(
             if (cursor.y - height - bodyLine < cursor.bottom && cursor.y < cursor.top) {
                 cursor.newPage();
             }
+            if (block.id !== undefined) cursor.emit({ kind: "anchor", id: block.id, y: cursor.y });
             drawLines(lines, area.x, cursor);
             return;
         }

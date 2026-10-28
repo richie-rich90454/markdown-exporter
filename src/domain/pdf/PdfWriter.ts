@@ -140,6 +140,14 @@ export function writePdf(
     const imageIndexes = images.map(() => reserve());
     const mathFonts = prepareMathFonts(layout, katexFontData, reserve);
     const cjkFonts = prepareCjkFonts(layout, reserve);
+    const destinations = new Map<string, { readonly pageIndex: number; readonly y: number }>();
+    layout.pages.forEach((ops, pageIndex) => {
+        for (const op of ops) {
+            if (op.kind === "anchor" && !destinations.has(op.id)) {
+                destinations.set(op.id, { pageIndex, y: op.y });
+            }
+        }
+    });
 
     pageIndexes.forEach((pageIndex, order) => {
         const ops = layout.pages[order] ?? [];
@@ -209,11 +217,26 @@ export function writePdf(
                     break;
                 }
                 case "link": {
-                    links.push(
-                        `<< /Type /Annot /Subtype /Link /Rect [${num(op.x)} ${num(op.y)} ${num(op.x + op.w)} ${num(op.y + op.h)}] /Border [0 0 0] /A << /S /URI /URI ${literal(op.uri)} >> >>`
-                    );
+                    const rect = `/Rect [${num(op.x)} ${num(op.y)} ${num(op.x + op.w)} ${num(op.y + op.h)}] /Border [0 0 0]`;
+                    if (op.uri.startsWith("#")) {
+                        const target = destinations.get(op.uri.slice(1));
+                        if (target !== undefined) {
+                            const targetPage = pageIndexes[target.pageIndex];
+                            if (targetPage !== undefined) {
+                                links.push(
+                                    `<< /Type /Annot /Subtype /Link ${rect} /Dest [${targetPage} 0 R /XYZ null ${num(target.y)} null] >>`
+                                );
+                            }
+                        }
+                    } else {
+                        links.push(
+                            `<< /Type /Annot /Subtype /Link ${rect} /A << /S /URI /URI ${literal(op.uri)} >> >>`
+                        );
+                    }
                     break;
                 }
+                case "anchor":
+                    break;
             }
         }
         const content = stream.join("\n");
