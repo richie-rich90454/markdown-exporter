@@ -13,6 +13,7 @@ import {
 import { insertTableCommand } from "@milkdown/kit/preset/gfm";
 import { insert, replaceAll } from "@milkdown/kit/utils";
 import { TextSelection } from "@milkdown/kit/prose/state";
+import { preserveMarkdownSource } from "../../domain/MarkdownSourceFidelity";
 import { Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 
 export interface RichMarkdownEditorProps {
@@ -35,6 +36,8 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
     let observer: MutationObserver | undefined;
     let destroying = false;
     let lastExternalSource = "";
+    let fidelitySource = "";
+    let fidelityBaseline = "";
     let syncTimer: ReturnType<typeof setTimeout> | undefined;
     let dirty = false;
     let mathEnabled = false;
@@ -44,9 +47,11 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
         if (host === undefined) return;
         const initial = props.source();
         lastExternalSource = initial;
+        fidelitySource = initial;
         mathEnabled = containsMath(initial);
         void createEditor(initial, mathEnabled).then(() => {
             if (destroying || editor === undefined) return;
+            fidelityBaseline = serializeMarkdown();
             syncEditorSurface();
             props.onSourceReady?.(() =>
                 readMarkdown()
@@ -63,9 +68,11 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
         const next = props.source();
         if (editor === undefined || next === lastExternalSource) return;
         lastExternalSource = next;
+        fidelitySource = next;
         dirty = false;
         observer?.disconnect();
         editor.action(replaceAll(next));
+        fidelityBaseline = serializeMarkdown();
         const view = editor.action((ctx) => ctx.get(editorViewCtx));
         observer?.observe(view.dom, { childList: true, characterData: true, subtree: true });
     });
@@ -133,10 +140,13 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
     function flushMarkdown(): void {
         if (editor === undefined) return;
         if (syncTimer !== undefined) clearTimeout(syncTimer);
-        const markdown = serializeMarkdown();
+        const serialized = serializeMarkdown();
+        const markdown = preserveMarkdownSource(fidelitySource, fidelityBaseline, serialized);
         if (markdown !== lastExternalSource) {
             dirty = true;
             lastExternalSource = markdown;
+            fidelitySource = markdown;
+            fidelityBaseline = serialized;
             props.onInput(markdown);
         }
     }
@@ -200,6 +210,8 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
             );
             if (shouldFocus) upgradedView.focus();
             lastExternalSource = source;
+            fidelitySource = source;
+            fidelityBaseline = serializeMarkdown();
             setMathDiagnostic("");
         } catch (error) {
             setMathDiagnostic(error instanceof Error
