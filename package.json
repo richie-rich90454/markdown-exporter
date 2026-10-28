@@ -25,7 +25,8 @@
         "format:check": "oxfmt --check .",
         "test": "vitest run",
         "test:watch": "vitest",
-        "test:e2e": "playwright test"
+        "test:e2e": "playwright test",
+        "test:e2e:matrix": "node scripts/run-playwright-matrix.mjs"
     },
     "dependencies": {
         "@citation-js/core": "^0.9.0",

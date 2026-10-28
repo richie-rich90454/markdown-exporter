@@ -37,7 +37,10 @@ The app has no account, upload service, or telemetry. It uses local file-picker 
 pnpm typecheck
 pnpm test
 pnpm test:e2e
+pnpm test:e2e:matrix
 pnpm build
 ```
+
+The default browser suite runs Chromium. `pnpm test:e2e:matrix` also runs Firefox and WebKit when their Playwright browsers are installed.
 
 MIT. Author richie-rich90454.
