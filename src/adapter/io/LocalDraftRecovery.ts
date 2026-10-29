@@ -72,7 +72,9 @@ export class BrowserDraftRecovery implements DraftRecovery {
     }
 
     save(source: string, bookProject?: BookProject, activeEntryId?: string): Promise<void> {
-        const pending = recoveryWriteQueue.then(() => saveRecoveryDraft(source, bookProject, activeEntryId));
+        const pending = recoveryWriteQueue.then(() =>
+            saveRecoveryDraft(source, bookProject, activeEntryId)
+        );
         // A failed write should be reported to its caller but must not prevent later edits from being saved.
         recoveryWriteQueue = pending.catch(() => undefined);
         return pending;
@@ -117,15 +119,17 @@ function normalizeDraft(value: Partial<RecoveredDraft> | null | undefined): Reco
     } catch {
         // A damaged book snapshot should not prevent recovering its active Markdown text.
     }
-    const activeEntryId = typeof value.activeEntryId === "string" &&
+    const activeEntryId =
+        typeof value.activeEntryId === "string" &&
         bookProject?.manifest.entries.some((entry) => entry.id === value.activeEntryId)
-        ? value.activeEntryId
-        : undefined;
+            ? value.activeEntryId
+            : undefined;
     return {
         source: value.source,
-        savedAt: typeof value.savedAt === "number" && Number.isFinite(value.savedAt)
-            ? Math.max(0, Math.trunc(value.savedAt))
-            : 0,
+        savedAt:
+            typeof value.savedAt === "number" && Number.isFinite(value.savedAt)
+                ? Math.max(0, Math.trunc(value.savedAt))
+                : 0,
         ...(bookProject === undefined ? {} : { bookProject }),
         ...(activeEntryId === undefined ? {} : { activeEntryId })
     };
@@ -162,7 +166,8 @@ function encodeBinary(_key: string, value: unknown): unknown {
 }
 
 function decodeBinary(_key: string, value: unknown): unknown {
-    if (typeof value !== "object" || value === null || !("__binary" in value) || !("data" in value)) return value;
+    if (typeof value !== "object" || value === null || !("__binary" in value) || !("data" in value))
+        return value;
     const encoded = value as { readonly __binary?: unknown; readonly data?: unknown };
     if (encoded.__binary !== "uint8" || typeof encoded.data !== "string") return value;
     try {

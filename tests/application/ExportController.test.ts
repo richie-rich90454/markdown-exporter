@@ -121,8 +121,24 @@ describe("ExportController", () => {
         const document = rendered("Chapter heading");
         const renderSource = () => Promise.resolve(document.content);
 
-        await controller.export(ExportFormat.HTML, document, document.content, SETUP, project, renderSource, false);
-        await controller.export(ExportFormat.HTML, document, document.content, SETUP, project, renderSource, true);
+        await controller.export(
+            ExportFormat.HTML,
+            document,
+            document.content,
+            SETUP,
+            project,
+            renderSource,
+            false
+        );
+        await controller.export(
+            ExportFormat.HTML,
+            document,
+            document.content,
+            SETUP,
+            project,
+            renderSource,
+            true
+        );
 
         expect(requests[0]?.isBookProject).toBe(false);
         expect(requests[0]?.title).toBe("Chapter heading");

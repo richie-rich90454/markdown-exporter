@@ -21,20 +21,17 @@ export class EditorStore {
         this.setDocument = setDocument;
     }
 
-    update(
-        source: string,
-        patch?: EditorHistoryPatch,
-        kind?: EditorHistoryChangeKind
-    ): void {
+    update(source: string, patch?: EditorHistoryPatch, kind?: EditorHistoryChangeKind): void {
         this.setDocument((previous) => {
             if (source === previous.source) return previous;
 
             if (this.history.current() !== previous.source) {
                 this.history.reset(previous.source);
             }
-            const recorded = patch === undefined
-                ? this.history.record(source, { ...(kind === undefined ? {} : { kind }) })
-                : this.history.recordPatch(patch, { ...(kind === undefined ? {} : { kind }) });
+            const recorded =
+                patch === undefined
+                    ? this.history.record(source, { ...(kind === undefined ? {} : { kind }) })
+                    : this.history.recordPatch(patch, { ...(kind === undefined ? {} : { kind }) });
             if (!recorded && this.history.current() !== source) {
                 // If an adapter supplied a stale or malformed patch, preserve
                 // the edit with a safe diff instead of dropping its history.
@@ -55,10 +52,18 @@ export class EditorStore {
     }
 
     /** Records a book-wide action and moves this chapter's source in the same history step. */
-    recordExternalTransition(actionId: string, nextSource: string, retainedPayloadBytes = 0): boolean {
+    recordExternalTransition(
+        actionId: string,
+        nextSource: string,
+        retainedPayloadBytes = 0
+    ): boolean {
         const current = this.current();
         if (this.history.current() !== current.source) this.history.reset(current.source);
-        const recorded = this.history.recordExternalTransition(actionId, nextSource, retainedPayloadBytes);
+        const recorded = this.history.recordExternalTransition(
+            actionId,
+            nextSource,
+            retainedPayloadBytes
+        );
         this.setDocument((previous) => previous.withSource(nextSource));
         return recorded;
     }

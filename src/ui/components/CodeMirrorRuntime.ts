@@ -12,12 +12,6 @@ export {
     StateField,
     Transaction
 } from "@codemirror/state";
-export {
-    Decoration,
-    EditorView,
-    ViewPlugin,
-    keymap,
-    WidgetType
-} from "@codemirror/view";
+export { Decoration, EditorView, ViewPlugin, keymap, WidgetType } from "@codemirror/view";
 export { searchKeymap } from "@codemirror/search";
 export { tags } from "@lezer/highlight";

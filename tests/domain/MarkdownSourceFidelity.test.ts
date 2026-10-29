@@ -3,9 +3,12 @@ import { preserveMarkdownSource } from "../../src/domain/MarkdownSourceFidelity"
 
 describe("rich-editor Markdown source fidelity", () => {
     it("keeps unchanged authored blocks byte-for-byte while accepting an edited block", () => {
-        const original = "A setext title\n===============\n\nA  carefully wrapped\nparagraph.\n\nKeep this *emphasis* exactly.";
-        const baseline = "# A setext title\n\nA carefully wrapped paragraph.\n\nKeep this *emphasis* exactly.";
-        const current = "# A setext title\n\nA carefully wrapped paragraph, revised.\n\nKeep this *emphasis* exactly.";
+        const original =
+            "A setext title\n===============\n\nA  carefully wrapped\nparagraph.\n\nKeep this *emphasis* exactly.";
+        const baseline =
+            "# A setext title\n\nA carefully wrapped paragraph.\n\nKeep this *emphasis* exactly.";
+        const current =
+            "# A setext title\n\nA carefully wrapped paragraph, revised.\n\nKeep this *emphasis* exactly.";
 
         expect(preserveMarkdownSource(original, baseline, current)).toBe(
             "A setext title\n===============\n\nA carefully wrapped paragraph, revised.\n\nKeep this *emphasis* exactly."
@@ -33,7 +36,9 @@ describe("rich-editor Markdown source fidelity", () => {
     it("does not duplicate opaque syntax that the rich serializer kept", () => {
         const original = "# Chapter\n\n<!-- editor note -->\n\nBody.";
         const serialized = "# Chapter\n\n<!-- editor note -->\n\nBody.";
-        expect(preserveMarkdownSource(original, serialized, serialized).match(/editor note/g)).toHaveLength(1);
+        expect(
+            preserveMarkdownSource(original, serialized, serialized).match(/editor note/g)
+        ).toHaveLength(1);
     });
 
     it("preserves an unsupported wiki link when the surrounding paragraph is edited", () => {
@@ -47,7 +52,8 @@ describe("rich-editor Markdown source fidelity", () => {
     });
 
     it("restores an escaped wiki link when nearby source is edited", () => {
-        const original = "Read [[field-notes|the field notes]] before continuing<!-- author note -->.";
+        const original =
+            "Read [[field-notes|the field notes]] before continuing<!-- author note -->.";
         const baseline = "Read \\[\\[field-notes|the field notes]] before continuing.";
         const current = "Please Read \\[\\[field-notes|the field notes]] before continuing.";
 
@@ -100,7 +106,7 @@ describe("rich-editor Markdown source fidelity", () => {
         const original = [
             "Opening paragraph.",
             "",
-            "[source]: https://example.test/source \"Primary source\"",
+            '[source]: https://example.test/source "Primary source"',
             "",
             "<details>",
             "<summary>Author note</summary>",
@@ -108,15 +114,17 @@ describe("rich-editor Markdown source fidelity", () => {
             "</details>",
             "",
             "Closing paragraph."
-        ].join("\r\n").replace("Opening paragraph.\r\n\r\n[source]", "Opening paragraph.\n\n[source]");
+        ]
+            .join("\r\n")
+            .replace("Opening paragraph.\r\n\r\n[source]", "Opening paragraph.\n\n[source]");
         const baseline = "Opening paragraph.\n\nClosing paragraph.";
         const current = "Revised opening paragraph.\n\nClosing paragraph.";
 
         expect(preserveMarkdownSource(original, baseline, current)).toBe(
-            "Revised opening paragraph.\n\n[source]: https://example.test/source \"Primary source\"" +
-            "\r\n\r\n<details>\r\n<summary>Author note</summary>\r\n" +
-            "Keep this block even when the rich schema cannot model it.\r\n</details>\r\n\r\n" +
-            "Closing paragraph."
+            'Revised opening paragraph.\n\n[source]: https://example.test/source "Primary source"' +
+                "\r\n\r\n<details>\r\n<summary>Author note</summary>\r\n" +
+                "Keep this block even when the rich schema cannot model it.\r\n</details>\r\n\r\n" +
+                "Closing paragraph."
         );
     });
 

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { applyReplacementPatches, findReplacementPatches } from "../../src/domain/ReplacementPatches";
+import {
+    applyReplacementPatches,
+    findReplacementPatches
+} from "../../src/domain/ReplacementPatches";
 
 describe("manuscript replacement patches", () => {
     it("undoes and redoes repeated replacements whose lengths change offsets", () => {

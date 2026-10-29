@@ -113,27 +113,46 @@ test("source and inline modes share the Markdown document and undo history", asy
     await expect(editor).toHaveText("");
 });
 
-test("manuscript-wide replace all participates in chronological undo and redo", async ({ page }) => {
+test("manuscript-wide replace all participates in chronological undo and redo", async ({
+    page
+}) => {
     const archive = zipSync({
-        "book.json": new TextEncoder().encode(JSON.stringify({
-            formatVersion: 1,
-            metadata: { title: "Undo manuscript replacement", authors: [], language: "en" },
-            entries: [
-                { id: "chapter-one", role: "chapter", path: "chapters/one.md", title: "Chapter One" },
-                { id: "chapter-two", role: "chapter", path: "chapters/two.md", title: "Chapter Two" }
-            ]
-        })),
+        "book.json": new TextEncoder().encode(
+            JSON.stringify({
+                formatVersion: 1,
+                metadata: { title: "Undo manuscript replacement", authors: [], language: "en" },
+                entries: [
+                    {
+                        id: "chapter-one",
+                        role: "chapter",
+                        path: "chapters/one.md",
+                        title: "Chapter One"
+                    },
+                    {
+                        id: "chapter-two",
+                        role: "chapter",
+                        path: "chapters/two.md",
+                        title: "Chapter Two"
+                    }
+                ]
+            })
+        ),
         "chapters/one.md": new TextEncoder().encode("alpha alpha appears in chapter one."),
         "chapters/two.md": new TextEncoder().encode("alpha appears in chapter two.")
     });
     await page.addInitScript(() => {
-        Object.defineProperty(window, "showOpenFilePicker", { configurable: true, value: undefined });
+        Object.defineProperty(window, "showOpenFilePicker", {
+            configurable: true,
+            value: undefined
+        });
     });
     await page.goto("/");
     await useSourceEditor(page);
     const chooser = page.waitForEvent("filechooser");
     await page.getByRole("button", { name: "Open book" }).click();
-    await (await chooser).setFiles({
+    await (
+        await chooser
+    ).setFiles({
         name: "undo-manuscript.mdbook",
         mimeType: "application/zip",
         buffer: Buffer.from(archive)
@@ -141,24 +160,32 @@ test("manuscript-wide replace all participates in chronological undo and redo", 
 
     const editor = page.getByLabel("Markdown editor");
     await expect(editor).toContainText("alpha alpha appears in chapter one.");
-    const replacement = page.locator(".book-tools__details").filter({ hasText: "Replace across manuscript" });
+    const replacement = page
+        .locator(".book-tools__details")
+        .filter({ hasText: "Replace across manuscript" });
     await replacement.locator("summary").click();
     await replacement.getByLabel("Find").fill("alpha");
     await replacement.getByLabel("Replace with").fill("a much longer word");
     await replacement.getByRole("button", { name: "Replace all" }).click();
-    await expect(editor).toContainText("a much longer word a much longer word appears in chapter one.");
+    await expect(editor).toContainText(
+        "a much longer word a much longer word appears in chapter one."
+    );
 
     await editor.click();
     await editor.press("Control+End");
     await editor.pressSequentially(" later");
     await editor.press("Control+z");
     await expect(editor).not.toContainText(" later");
-    await expect(editor).toContainText("a much longer word a much longer word appears in chapter one.");
+    await expect(editor).toContainText(
+        "a much longer word a much longer word appears in chapter one."
+    );
 
     await editor.press("Control+z");
     await expect(editor).toContainText("alpha alpha appears in chapter one.");
     await editor.press("Control+Shift+z");
-    await expect(editor).toContainText("a much longer word a much longer word appears in chapter one.");
+    await expect(editor).toContainText(
+        "a much longer word a much longer word appears in chapter one."
+    );
 
     await page.locator(".book-tools__section").filter({ hasText: "Chapter Two" }).click();
     await expect(editor).toContainText("a much longer word appears in chapter two.");
@@ -166,29 +193,48 @@ test("manuscript-wide replace all participates in chronological undo and redo", 
 
 test("Save as from a book produces a standalone Markdown document", async ({ page }) => {
     const archive = zipSync({
-        "book.json": new TextEncoder().encode(JSON.stringify({
-            formatVersion: 1,
-            metadata: { title: "Book Metadata Title", authors: ["Writer"], language: "en" },
-            entries: [
-                { id: "only-chapter", role: "chapter", path: "chapters/chapter-one.md", title: "Chapter One" }
-            ]
-        })),
-        "chapters/chapter-one.md": new TextEncoder().encode("# Chapter Heading\n\nStandalone content.")
+        "book.json": new TextEncoder().encode(
+            JSON.stringify({
+                formatVersion: 1,
+                metadata: { title: "Book Metadata Title", authors: ["Writer"], language: "en" },
+                entries: [
+                    {
+                        id: "only-chapter",
+                        role: "chapter",
+                        path: "chapters/chapter-one.md",
+                        title: "Chapter One"
+                    }
+                ]
+            })
+        ),
+        "chapters/chapter-one.md": new TextEncoder().encode(
+            "# Chapter Heading\n\nStandalone content."
+        )
     });
     await page.addInitScript(() => {
-        Object.defineProperty(window, "showOpenFilePicker", { configurable: true, value: undefined });
-        Object.defineProperty(window, "showSaveFilePicker", { configurable: true, value: undefined });
+        Object.defineProperty(window, "showOpenFilePicker", {
+            configurable: true,
+            value: undefined
+        });
+        Object.defineProperty(window, "showSaveFilePicker", {
+            configurable: true,
+            value: undefined
+        });
     });
     await page.goto("/");
     await useSourceEditor(page);
     const chooser = page.waitForEvent("filechooser");
     await page.getByRole("button", { name: "Open book" }).click();
-    await (await chooser).setFiles({
+    await (
+        await chooser
+    ).setFiles({
         name: "standalone-test.mdbook",
         mimeType: "application/zip",
         buffer: Buffer.from(archive)
     });
-    await expect(page.getByRole("textbox", { name: "Markdown editor" })).toContainText("Standalone content.");
+    await expect(page.getByRole("textbox", { name: "Markdown editor" })).toContainText(
+        "Standalone content."
+    );
 
     const markdownDownload = page.waitForEvent("download");
     await page.getByRole("button", { name: "Save as", exact: true }).click();
@@ -1099,8 +1145,7 @@ test("renders the Chinese-cities calculus sample without losing math or table la
     await expect(page.locator(".cm-math-error")).toHaveCount(0);
     await page.getByRole("button", { name: "Source" }).click();
     const sourceAfterModeSwitch = await page.evaluate(() =>
-        (window as unknown as { __markdownEditorSource?: () => string })
-            .__markdownEditorSource?.()
+        (window as unknown as { __markdownEditorSource?: () => string }).__markdownEditorSource?.()
     );
     expect(sourceAfterModeSwitch).toContain("D(r)=D_0");
     expect(sourceAfterModeSwitch).toContain("\\\\[");

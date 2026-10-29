@@ -22,7 +22,8 @@ export async function readBookFolder(root: LocalDirectoryHandle): Promise<BookPr
     });
     if (manifestHandle === undefined) return null;
     const manifestFile = await manifestHandle.getFile();
-    if (manifestFile.size > 1024 * 1024) throw new Error("The book manifest exceeds the 1 MiB limit.");
+    if (manifestFile.size > 1024 * 1024)
+        throw new Error("The book manifest exceeds the 1 MiB limit.");
     const manifestText = await manifestFile.text();
     const files: Record<string, BookFileData> = {};
     let total = 0;
@@ -45,24 +46,29 @@ export async function writeBookFolder(
     const project = validateBookProject(projectValue);
     const entries = Object.entries(project.files);
     let nextTotal = 0;
-    if (entries.length + 1 > ENTRY_LIMIT) throw new Error("The book project contains too many files.");
+    if (entries.length + 1 > ENTRY_LIMIT)
+        throw new Error("The book project contains too many files.");
     for (const [path, data] of entries) {
         assertSafeBookPath(path);
         if (isBookManifestPath(path)) throw new Error("A project file cannot replace book.json.");
-        const size = typeof data === "string" ? new TextEncoder().encode(data).byteLength : data.byteLength;
-        if (size > FILE_LIMIT) throw new Error(`A book file exceeds the 64 MiB size limit: ${path}.`);
+        const size =
+            typeof data === "string" ? new TextEncoder().encode(data).byteLength : data.byteLength;
+        if (size > FILE_LIMIT)
+            throw new Error(`A book file exceeds the 64 MiB size limit: ${path}.`);
         nextTotal += size;
     }
     const manifest = serializeBookManifest(project.manifest);
     const manifestSize = new TextEncoder().encode(manifest).byteLength;
     if (manifestSize > 1024 * 1024) throw new Error("The book manifest exceeds the 1 MiB limit.");
     nextTotal += manifestSize;
-    if (nextTotal > TOTAL_LIMIT) throw new Error("The book project exceeds the 256 MiB size limit.");
+    if (nextTotal > TOTAL_LIMIT)
+        throw new Error("The book project exceeds the 256 MiB size limit.");
 
-    const currentPaths = new Set([
-        ...Object.keys(project.files),
-        ...project.manifest.entries.map((entry) => entry.path)
-    ].map(canonicalBookPath));
+    const currentPaths = new Set(
+        [...Object.keys(project.files), ...project.manifest.entries.map((entry) => entry.path)].map(
+            canonicalBookPath
+        )
+    );
     const obsoleteEntries = (await readPreviousEntryPaths(root)).filter(
         (path) => !currentPaths.has(canonicalBookPath(path))
     );
@@ -78,11 +84,15 @@ export async function writeBookFolder(
         const target = await prepareTarget(root, path);
         if (target.previous !== undefined) {
             const limit = path === "book.json" ? 1024 * 1024 : FILE_LIMIT;
-            if (target.previous.byteLength > limit) throw new Error(`The existing book file ${path} exceeds the save safety limit.`);
+            if (target.previous.byteLength > limit)
+                throw new Error(`The existing book file ${path} exceeds the save safety limit.`);
             snapshotBytes += target.previous.byteLength;
-            if (snapshotBytes > TOTAL_LIMIT) throw new Error("The existing book folder exceeds the rollback safety limit.");
+            if (snapshotBytes > TOTAL_LIMIT)
+                throw new Error("The existing book folder exceeds the rollback safety limit.");
         } else if (target.directory.removeEntry === undefined) {
-            throw new Error(`This browser cannot safely roll back a new book file (${path}); no files were changed.`);
+            throw new Error(
+                `This browser cannot safely roll back a new book file (${path}); no files were changed.`
+            );
         }
         target.value = value;
         targets.push(target);
@@ -93,7 +103,9 @@ export async function writeBookFolder(
         const target = await prepareTarget(root, path);
         if (target.previous === undefined) continue;
         if (target.directory.removeEntry === undefined) {
-            throw new Error(`This browser cannot safely remove a deleted book section (${path}); no files were changed.`);
+            throw new Error(
+                `This browser cannot safely remove a deleted book section (${path}); no files were changed.`
+            );
         }
         target.operation = "delete";
         targets.push(target);
@@ -149,7 +161,9 @@ async function prepareTarget(root: LocalDirectoryHandle, path: string): Promise<
     let directory = root;
     for (const part of parts) {
         if (directory.getDirectoryHandle === undefined) {
-            throw new Error("This browser cannot create folders inside the selected book directory.");
+            throw new Error(
+                "This browser cannot create folders inside the selected book directory."
+            );
         }
         directory = await directory.getDirectoryHandle(part, { create: true });
     }
@@ -162,7 +176,8 @@ async function prepareTarget(root: LocalDirectoryHandle, path: string): Promise<
     }
     const file = await handle.getFile();
     const limit = path === "book.json" ? 1024 * 1024 : FILE_LIMIT;
-    if (file.size > limit) throw new Error(`The existing book file ${path} exceeds the save safety limit.`);
+    if (file.size > limit)
+        throw new Error(`The existing book file ${path} exceeds the save safety limit.`);
     return {
         path,
         directory,
@@ -180,7 +195,8 @@ async function readPreviousEntryPaths(root: LocalDirectoryHandle): Promise<strin
     });
     if (handle === undefined) return [];
     const file = await handle.getFile();
-    if (file.size > 1024 * 1024) throw new Error("The existing book manifest exceeds the 1 MiB limit.");
+    if (file.size > 1024 * 1024)
+        throw new Error("The existing book manifest exceeds the 1 MiB limit.");
     let manifest: unknown;
     try {
         manifest = JSON.parse(await file.text()) as unknown;
@@ -188,13 +204,21 @@ async function readPreviousEntryPaths(root: LocalDirectoryHandle): Promise<strin
         throw new Error("The existing book manifest is not valid JSON.");
     }
     if (
-        typeof manifest !== "object" || manifest === null ||
-        !("entries" in manifest) || !Array.isArray(manifest.entries)
-    ) throw new Error("The existing book manifest has an invalid section list.");
+        typeof manifest !== "object" ||
+        manifest === null ||
+        !("entries" in manifest) ||
+        !Array.isArray(manifest.entries)
+    )
+        throw new Error("The existing book manifest has an invalid section list.");
     const paths = new Set<string>();
     const entries = manifest.entries as unknown[];
     for (const entry of entries) {
-        if (typeof entry !== "object" || entry === null || !("path" in entry) || typeof entry.path !== "string") {
+        if (
+            typeof entry !== "object" ||
+            entry === null ||
+            !("path" in entry) ||
+            typeof entry.path !== "string"
+        ) {
             throw new Error("The existing book manifest contains an invalid section path.");
         }
         assertSafeBookPath(entry.path);
@@ -203,7 +227,10 @@ async function readPreviousEntryPaths(root: LocalDirectoryHandle): Promise<strin
     return [...paths];
 }
 
-async function writePreparedTarget(target: PreparedTarget, data: string | Uint8Array): Promise<void> {
+async function writePreparedTarget(
+    target: PreparedTarget,
+    data: string | Uint8Array
+): Promise<void> {
     const handle = await target.directory.getFileHandle(target.filename, { create: true });
     const writable = await handle.createWritable();
     try {
@@ -236,13 +263,14 @@ async function collectFiles(
     countBytes: (size: number) => void
 ): Promise<void> {
     if (depth > DIRECTORY_DEPTH_LIMIT) {
-        throw new Error(`The book folder exceeds the ${DIRECTORY_DEPTH_LIMIT}-level directory depth limit.`);
+        throw new Error(
+            `The book folder exceeds the ${DIRECTORY_DEPTH_LIMIT}-level directory depth limit.`
+        );
     }
     for await (const handle of directory.values()) {
         const path = prefix.length > 0 ? `${prefix}/${handle.name}` : handle.name;
         if (handle.kind === "directory") {
             assertSafeBookPath(path);
-            countBytes(0);
             await collectFiles(handle, path, files, depth + 1, countBytes);
             continue;
         }
@@ -252,12 +280,22 @@ async function collectFiles(
         countBytes(file.size);
         const bytes = new Uint8Array(await file.arrayBuffer());
         const value = isTextPath(path) ? decodeText(bytes, path) : bytes;
-        Object.defineProperty(files, path, { value, enumerable: true, configurable: true, writable: true });
+        Object.defineProperty(files, path, {
+            value,
+            enumerable: true,
+            configurable: true,
+            writable: true
+        });
     }
 }
 
 function isNotFoundError(error: unknown): boolean {
-    return typeof error === "object" && error !== null && "name" in error && error.name === "NotFoundError";
+    return (
+        typeof error === "object" &&
+        error !== null &&
+        "name" in error &&
+        error.name === "NotFoundError"
+    );
 }
 
 function isTextPath(path: string): boolean {
@@ -271,4 +309,3 @@ function decodeText(bytes: Uint8Array, path: string): string {
         throw new Error(`The book text file ${path} is not valid UTF-8.`);
     }
 }
-

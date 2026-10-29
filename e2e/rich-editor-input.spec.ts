@@ -7,7 +7,9 @@ test("keeps selection-aware keyboard formatting in the rich editor", async ({ pa
     const sentence = "A sentence for the manuscript.";
     await editor.pressSequentially(sentence);
     await editor.press("Control+a");
-    await expect.poll(() => editor.evaluate(() => window.getSelection()?.toString() ?? "")).toContain(sentence);
+    await expect
+        .poll(() => editor.evaluate(() => window.getSelection()?.toString() ?? ""))
+        .toContain(sentence);
     await editor.press("Control+b");
 
     await expect(editor.locator("strong")).toHaveText(sentence);
@@ -20,7 +22,9 @@ test("activates selection formatting from the keyboard-accessible toolbar", asyn
     const sentence = "A keyboard-formatted sentence.";
     await editor.pressSequentially(sentence);
     await editor.press("Control+a");
-    await expect.poll(() => editor.evaluate(() => window.getSelection()?.toString() ?? "")).toContain(sentence);
+    await expect
+        .poll(() => editor.evaluate(() => window.getSelection()?.toString() ?? ""))
+        .toContain(sentence);
 
     const bold = page.getByRole("button", { name: "Bold" });
     await bold.focus();
@@ -45,7 +49,10 @@ test("pastes Markdown blocks through the rich editor clipboard path", async ({ p
             clipboardText: event.clipboardData?.getData("text/plain") ?? ""
         };
     }, "## Clipboard heading\n\nPasted **bold** text.");
-    expect(paste).toEqual({ defaultPrevented: true, clipboardText: "## Clipboard heading\n\nPasted **bold** text." });
+    expect(paste).toEqual({
+        defaultPrevented: true,
+        clipboardText: "## Clipboard heading\n\nPasted **bold** text."
+    });
 
     await expect(editor.locator("h2")).toHaveCount(1);
     await expect(editor.locator("strong")).toHaveCount(1);
@@ -55,8 +62,14 @@ test("pastes Markdown blocks through the rich editor clipboard path", async ({ p
     await expect(page.locator(".preview__flow h2")).toHaveText("Clipboard heading");
 });
 
-test("pastes inline Markdown formatting from the system clipboard", async ({ page, browserName }) => {
-    test.skip(browserName !== "chromium", "Playwright exposes system clipboard permissions only in Chromium.");
+test("pastes inline Markdown formatting from the system clipboard", async ({
+    page,
+    browserName
+}) => {
+    test.skip(
+        browserName !== "chromium",
+        "Playwright exposes system clipboard permissions only in Chromium."
+    );
     await page.goto("/");
     await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
     await page.evaluate(() => navigator.clipboard.writeText("**bold** and *italic*"));
@@ -90,7 +103,9 @@ test("keeps the insertion point when math editing loads after typing begins", as
     await expect(source).toContainText("followed by text and more.");
 });
 
-test("renders chemistry commands in the rich editor after loading math on demand", async ({ page }) => {
+test("renders chemistry commands in the rich editor after loading math on demand", async ({
+    page
+}) => {
     await page.goto("/");
     await page.getByRole("button", { name: "Source", exact: true }).click();
     const source = page.getByRole("textbox", { name: "Markdown editor" });
@@ -103,10 +118,14 @@ test("renders chemistry commands in the rich editor after loading math on demand
 
     await page.getByRole("button", { name: "Source", exact: true }).click();
     await expect(page.getByRole("textbox", { name: "Markdown editor" })).toContainText("\\ce{H2O}");
-    await expect(page.getByRole("textbox", { name: "Markdown editor" })).toContainText("\\pu{3.2 kg}");
+    await expect(page.getByRole("textbox", { name: "Markdown editor" })).toContainText(
+        "\\pu{3.2 kg}"
+    );
 });
 
-test("loads chemistry support when a chemistry formula is added to an open math editor", async ({ page }) => {
+test("loads chemistry support when a chemistry formula is added to an open math editor", async ({
+    page
+}) => {
     await page.goto("/");
     const editor = page.getByRole("textbox", { name: "Markdown editor" });
     await editor.press("Control+a");
@@ -126,18 +145,24 @@ test("accepts multilingual text across a composition lifecycle", async ({ page }
     const editor = page.getByRole("textbox", { name: "Markdown editor" });
     await editor.focus();
     await editor.evaluate((element) => {
-        element.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true, data: "" }));
+        element.dispatchEvent(
+            new CompositionEvent("compositionstart", { bubbles: true, data: "" })
+        );
     });
     await page.keyboard.insertText("漢字 café");
     await editor.evaluate((element) => {
-        element.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "漢字 café" }));
+        element.dispatchEvent(
+            new CompositionEvent("compositionend", { bubbles: true, data: "漢字 café" })
+        );
     });
 
     await expect(editor).toContainText("漢字 café");
     await expect(page.locator(".preview__flow p")).toHaveText("漢字 café");
 });
 
-test("exposes the writing surface and toolbar accessibly and hides inactive rich controls", async ({ page }) => {
+test("exposes the writing surface and toolbar accessibly and hides inactive rich controls", async ({
+    page
+}) => {
     await page.goto("/");
     const editor = page.getByRole("textbox", { name: "Markdown editor" });
     await expect(editor).toHaveAttribute("aria-multiline", "true");

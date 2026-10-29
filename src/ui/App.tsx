@@ -105,7 +105,6 @@ export function App(props: AppProps) {
         };
         window.addEventListener("keydown", onKeyDown);
         onCleanup(() => window.removeEventListener("keydown", onKeyDown));
-
     });
 
     createEffect(() => {
@@ -185,7 +184,8 @@ export function App(props: AppProps) {
         const rendered = await ensureCurrentPreview();
         if (rendered === null || rendered.isEmpty) {
             exportStore.fail(
-                previewStore.lastError() ?? "The preview is still updating. Try exporting again in a moment."
+                previewStore.lastError() ??
+                    "The preview is still updating. Try exporting again in a moment."
             );
             return;
         }
@@ -201,7 +201,8 @@ export function App(props: AppProps) {
             context.settingsStore.current(),
             context.bookProjectStore.current(),
             async (source) =>
-                (await context.editorController.render(MarkdownDocumentValue.initial(source))).content,
+                (await context.editorController.render(MarkdownDocumentValue.initial(source)))
+                    .content,
             context.bookProjectStore.isBookProject()
         );
         exportStore.settle(result);
@@ -300,7 +301,9 @@ export function App(props: AppProps) {
                         context={context}
                         onInput={onSourceChange}
                         onHistoryStep={() => {
-                            context.bookProjectStore.updateActive(context.editorStore.current().source);
+                            context.bookProjectStore.updateActive(
+                                context.editorStore.current().source
+                            );
                             pendingRevision = context.editorStore.current().revision;
                             debouncer.schedule();
                         }}

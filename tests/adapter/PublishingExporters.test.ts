@@ -16,6 +16,7 @@ import { RenderedDocument } from "../../src/domain/RenderedDocument";
 import type { PageSetup } from "../../src/domain/PageSetup";
 import type { Clock } from "../../src/port/Clock";
 import type { FileSaver } from "../../src/port/FileSaver";
+import { CONFORMANCE_MARKDOWN } from "../fixtures/markdownConformance";
 
 const PAGE_SETUP: PageSetup = {
     pageSize: "a4",
@@ -36,7 +37,9 @@ class MemoryFileSaver implements FileSaver {
 }
 
 class FixedClock implements Clock {
-    nowEpochMs(): number { return 1_700_000_000_000; }
+    nowEpochMs(): number {
+        return 1_700_000_000_000;
+    }
 }
 
 function request(
@@ -54,9 +57,14 @@ function request(
     table.innerHTML = "<thead><tr><th>Term</th></tr></thead><tbody><tr><td>Value</td></tr></tbody>";
     const math = document.createElement("span");
     math.className = "katex";
-    math.innerHTML = "<math><semantics><mrow><mi>x</mi><mo>=</mo><mn>2</mn></mrow><annotation encoding=\"application/x-tex\">x=2</annotation></semantics></math>";
+    math.innerHTML =
+        '<math><semantics><mrow><mi>x</mi><mo>=</mo><mn>2</mn></mrow><annotation encoding="application/x-tex">x=2</annotation></semantics></math>';
     content.append(title, paragraph, table, math);
-    const rendered = new RenderedDocument(content.cloneNode(true) as DocumentFragment, "A test book", 0);
+    const rendered = new RenderedDocument(
+        content.cloneNode(true) as DocumentFragment,
+        "A test book",
+        0
+    );
     return new ExportRequest(
         format,
         rendered,
@@ -95,13 +103,24 @@ function multilingualBook() {
             },
             entries: [
                 { ...first, id: "opening", role: "front-matter" as const, title: "前言" },
-                { id: "chapter 1", role: "chapter" as const, path: "chapters/chapter-2.md", title: "第一章" },
-                { id: "chapter/1", role: "back-matter" as const, path: "chapters/chapter-3.md", title: "尾声" }
+                {
+                    id: "chapter 1",
+                    role: "chapter" as const,
+                    path: "chapters/chapter-2.md",
+                    title: "第一章"
+                },
+                {
+                    id: "chapter/1",
+                    role: "back-matter" as const,
+                    path: "chapters/chapter-3.md",
+                    title: "尾声"
+                }
             ]
         },
         files: {
             ...base.files,
-            "chapters/chapter-2.md": "First chapter body with diagram and footnote[^source].\n\n[^source]: Footnote detail.",
+            "chapters/chapter-2.md":
+                "First chapter body with diagram and footnote[^source].\n\n[^source]: Footnote detail.",
             "chapters/chapter-3.md": "Afterword body[^source].\n\n[^source]: A second footnote."
         }
     };
@@ -114,130 +133,97 @@ function bookRequest(
 ): ExportRequest {
     const content = document.createDocumentFragment();
     const rendered = new RenderedDocument(content.cloneNode(true) as DocumentFragment, title, 0);
-    return new ExportRequest(format, rendered, title, content, PAGE_SETUP, bookProject, (source) => {
-        const chapter = document.createDocumentFragment();
-        const paragraph = document.createElement("p");
-        paragraph.textContent = source.replace(/\n\n\[\^source\]:[\s\S]*$/, "").replace("[^source]", "");
-        chapter.append(paragraph);
-        const repeatedHeading = document.createElement("h2");
-        repeatedHeading.id = "shared-heading";
-        repeatedHeading.textContent = "Repeated heading";
-        const localLink = document.createElement("a");
-        localLink.href = "#shared-heading";
-        localLink.textContent = "Jump to repeated heading";
-        chapter.append(repeatedHeading, localLink);
-        if (source.includes("diagram")) {
-            const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-            svg.setAttribute("width", "120");
-            svg.setAttribute("height", "60");
-            svg.setAttribute("viewBox", "0 0 120 60");
-            svg.setAttribute("aria-label", "A labeled diagram");
-            const line = document.createElementNS("http://www.w3.org/2000/svg", "path");
-            line.setAttribute("d", "M 5 30 L 115 30");
-            line.setAttribute("stroke", "black");
-            svg.append(line);
-            chapter.append(svg);
+    return new ExportRequest(
+        format,
+        rendered,
+        title,
+        content,
+        PAGE_SETUP,
+        bookProject,
+        (source) => {
+            const chapter = document.createDocumentFragment();
+            const paragraph = document.createElement("p");
+            paragraph.textContent = source
+                .replace(/\n\n\[\^source\]:[\s\S]*$/, "")
+                .replace("[^source]", "");
+            chapter.append(paragraph);
+            const repeatedHeading = document.createElement("h2");
+            repeatedHeading.id = "shared-heading";
+            repeatedHeading.textContent = "Repeated heading";
+            const localLink = document.createElement("a");
+            localLink.href = "#shared-heading";
+            localLink.textContent = "Jump to repeated heading";
+            chapter.append(repeatedHeading, localLink);
+            if (source.includes("diagram")) {
+                const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+                svg.setAttribute("width", "120");
+                svg.setAttribute("height", "60");
+                svg.setAttribute("viewBox", "0 0 120 60");
+                svg.setAttribute("aria-label", "A labeled diagram");
+                const line = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                line.setAttribute("d", "M 5 30 L 115 30");
+                line.setAttribute("stroke", "black");
+                svg.append(line);
+                chapter.append(svg);
 
-            const mathContainer = document.createElement("span");
-            mathContainer.className = "katex";
-            const math = document.createElementNS("http://www.w3.org/1998/Math/MathML", "math");
-            const semantics = document.createElementNS("http://www.w3.org/1998/Math/MathML", "semantics");
-            const row = document.createElementNS("http://www.w3.org/1998/Math/MathML", "mrow");
-            const identifier = document.createElementNS("http://www.w3.org/1998/Math/MathML", "mi");
-            identifier.textContent = "x";
-            row.append(identifier);
-            const annotation = document.createElementNS("http://www.w3.org/1998/Math/MathML", "annotation");
-            annotation.setAttribute("encoding", "application/x-tex");
-            annotation.textContent = "x";
-            semantics.append(row, annotation);
-            math.append(semantics);
-            mathContainer.append(math);
-            chapter.append(mathContainer);
-        }
-        if (source.includes("[^source]")) {
-            const reference = document.createElement("sup");
-            const link = document.createElement("a");
-            link.href = "#user-content-fn-source";
-            link.id = "user-content-fnref-source";
-            link.setAttribute("data-footnote-ref", "");
-            link.textContent = "1";
-            reference.append(link);
-            paragraph.append(reference);
+                const mathContainer = document.createElement("span");
+                mathContainer.className = "katex";
+                const math = document.createElementNS("http://www.w3.org/1998/Math/MathML", "math");
+                const semantics = document.createElementNS(
+                    "http://www.w3.org/1998/Math/MathML",
+                    "semantics"
+                );
+                const row = document.createElementNS("http://www.w3.org/1998/Math/MathML", "mrow");
+                const identifier = document.createElementNS(
+                    "http://www.w3.org/1998/Math/MathML",
+                    "mi"
+                );
+                identifier.textContent = "x";
+                row.append(identifier);
+                const annotation = document.createElementNS(
+                    "http://www.w3.org/1998/Math/MathML",
+                    "annotation"
+                );
+                annotation.setAttribute("encoding", "application/x-tex");
+                annotation.textContent = "x";
+                semantics.append(row, annotation);
+                math.append(semantics);
+                mathContainer.append(math);
+                chapter.append(mathContainer);
+            }
+            if (source.includes("[^source]")) {
+                const reference = document.createElement("sup");
+                const link = document.createElement("a");
+                link.href = "#user-content-fn-source";
+                link.id = "user-content-fnref-source";
+                link.setAttribute("data-footnote-ref", "");
+                link.textContent = "1";
+                reference.append(link);
+                paragraph.append(reference);
 
-            const notes = document.createElement("section");
-            notes.className = "footnotes";
-            notes.setAttribute("data-footnotes", "");
-            const list = document.createElement("ol");
-            const note = document.createElement("li");
-            note.id = "user-content-fn-source";
-            const noteBody = document.createElement("p");
-            noteBody.textContent = /\[\^source\]:\s*([^\r\n]+)/.exec(source)?.[1] ?? "Footnote detail.";
-            const backlink = document.createElement("a");
-            backlink.href = "#user-content-fnref-source";
-            backlink.setAttribute("data-footnote-backref", "");
-            backlink.textContent = "↩";
-            noteBody.append(backlink);
-            note.append(noteBody);
-            list.append(note);
-            notes.append(list);
-            chapter.append(notes);
+                const notes = document.createElement("section");
+                notes.className = "footnotes";
+                notes.setAttribute("data-footnotes", "");
+                const list = document.createElement("ol");
+                const note = document.createElement("li");
+                note.id = "user-content-fn-source";
+                const noteBody = document.createElement("p");
+                noteBody.textContent =
+                    /\[\^source\]:\s*([^\r\n]+)/.exec(source)?.[1] ?? "Footnote detail.";
+                const backlink = document.createElement("a");
+                backlink.href = "#user-content-fnref-source";
+                backlink.setAttribute("data-footnote-backref", "");
+                backlink.textContent = "↩";
+                noteBody.append(backlink);
+                note.append(noteBody);
+                list.append(note);
+                notes.append(list);
+                chapter.append(notes);
+            }
+            return Promise.resolve(chapter);
         }
-        return Promise.resolve(chapter);
-    });
+    );
 }
-
-const CONFORMANCE_MARKDOWN = [
-    "---",
-    "title: Excluded chapter metadata",
-    "---",
-    "",
-    "# Corpus chapter",
-    "",
-    "[TOC]",
-    "",
-    "## Typora TOC target",
-    "",
-    "Highlight ==highlighted==, H~2~O, x^2^, ~~struck text~~, and :smile:.",
-    "",
-    "- [x] Completed task",
-    "- [ ] Open task",
-    "",
-    "See [local reference][docs] and https://example.com.",
-    "",
-    "[docs]: https://example.org/reference",
-    "",
-    "> [!WARNING]",
-    "> Warning prose remains in every publication format.",
-    "",
-    "Inline raw HTML: <span>safe <em>inline HTML</em></span><script>UNSAFE_SCRIPT</script>",
-    "",
-    "```js",
-    "const corpus = 1;",
-    "```",
-    "",
-    "Unicode: 中文. Local citation [@smith2020]. Footnote reference[^corpus].",
-    "",
-    "| Heading | Value |",
-    "| --- | --- |",
-    "| Term | Corpus table cell |",
-    "",
-    "Equation: $x=2$.",
-    "",
-    "Malformed $\\frac{1}{$.",
-    "",
-    "\x60\x60\x60mermaid",
-    "flowchart TD",
-    "A[Corpus diagram] --> B[Finished]",
-    "\x60\x60\x60",
-    "",
-    "\x60\x60\x60mermaid",
-    "not a valid diagram !!!",
-    "\x60\x60\x60",
-    "",
-    "Content after malformed blocks remains visible.",
-    "",
-    "[^corpus]: Corpus footnote detail."
-].join("\n");
 
 function conformanceProject() {
     const base = createSingleChapterBook(CONFORMANCE_MARKDOWN, "Conformance manuscript");
@@ -252,7 +238,8 @@ function conformanceProject() {
         files: {
             ...base.files,
             [chapterPath]: CONFORMANCE_MARKDOWN,
-            "references.bib": "@book{smith2020, author={John Smith}, title={A Book}, year={2020}, publisher={Local Press}}"
+            "references.bib":
+                "@book{smith2020, author={John Smith}, title={A Book}, year={2020}, publisher={Local Press}}"
         }
     };
 }
@@ -263,7 +250,11 @@ function conformanceRequest(
     renderedCorpus: DocumentFragment
 ): ExportRequest {
     const content = document.createDocumentFragment();
-    const rendered = new RenderedDocument(content.cloneNode(true) as DocumentFragment, "Conformance manuscript", 0);
+    const rendered = new RenderedDocument(
+        content.cloneNode(true) as DocumentFragment,
+        "Conformance manuscript",
+        0
+    );
     return new ExportRequest(
         format,
         rendered,
@@ -282,7 +273,9 @@ async function readExportText(saver: MemoryFileSaver, format: ExportFormat): Pro
     const bytes = new Uint8Array(await blob.arrayBuffer());
     if (format === ExportFormat.PDF) return new TextDecoder("latin1").decode(bytes);
     return Object.entries(unzipSync(bytes))
-        .filter(([path]) => path.endsWith(".xml") || path.endsWith(".xhtml") || path.endsWith(".svg"))
+        .filter(
+            ([path]) => path.endsWith(".xml") || path.endsWith(".xhtml") || path.endsWith(".svg")
+        )
         .map(([, file]) => new TextDecoder().decode(file))
         .join("\n");
 }
@@ -291,8 +284,14 @@ async function withSvgMeasurements<T>(run: () => Promise<T>): Promise<T> {
     const svgPrototype = SVGElement.prototype;
     const htmlPrototype = HTMLElement.prototype;
     const originalBox = Object.getOwnPropertyDescriptor(svgPrototype, "getBBox");
-    const originalSvgLength = Object.getOwnPropertyDescriptor(svgPrototype, "getComputedTextLength");
-    const originalHtmlLength = Object.getOwnPropertyDescriptor(htmlPrototype, "getComputedTextLength");
+    const originalSvgLength = Object.getOwnPropertyDescriptor(
+        svgPrototype,
+        "getComputedTextLength"
+    );
+    const originalHtmlLength = Object.getOwnPropertyDescriptor(
+        htmlPrototype,
+        "getComputedTextLength"
+    );
     Object.defineProperty(svgPrototype, "getBBox", {
         configurable: true,
         value: () => ({ x: 0, y: 0, width: 120, height: 36 })
@@ -313,25 +312,32 @@ async function withSvgMeasurements<T>(run: () => Promise<T>): Promise<T> {
     } finally {
         if (originalBox === undefined) Reflect.deleteProperty(svgPrototype, "getBBox");
         else Object.defineProperty(svgPrototype, "getBBox", originalBox);
-        if (originalSvgLength === undefined) Reflect.deleteProperty(svgPrototype, "getComputedTextLength");
+        if (originalSvgLength === undefined)
+            Reflect.deleteProperty(svgPrototype, "getComputedTextLength");
         else Object.defineProperty(svgPrototype, "getComputedTextLength", originalSvgLength);
-        if (originalHtmlLength === undefined) Reflect.deleteProperty(htmlPrototype, "getComputedTextLength");
+        if (originalHtmlLength === undefined)
+            Reflect.deleteProperty(htmlPrototype, "getComputedTextLength");
         else Object.defineProperty(htmlPrototype, "getComputedTextLength", originalHtmlLength);
     }
 }
 
 function cslWithCitationPrefix(prefix: string): string {
-    return `<?xml version="1.0" encoding="utf-8"?>\n` +
+    return (
+        `<?xml version="1.0" encoding="utf-8"?>\n` +
         `<style xmlns="http://purl.org/net/xbiblio/csl" version="1.0" class="in-text">` +
         `<info><title>${prefix} test style</title><id>http://example.com/styles/${prefix.toLowerCase()}</id>` +
         `<link href="http://example.com/styles/${prefix.toLowerCase()}" rel="self"/><updated>2020-01-01T00:00:00+00:00</updated></info>` +
         `<citation><layout prefix="${prefix}[" suffix="]"><text variable="title"/></layout></citation>` +
-        `<bibliography><layout><text variable="title"/></layout></bibliography></style>`;
+        `<bibliography><layout><text variable="title"/></layout></bibliography></style>`
+    );
 }
 
 describe("publishing exporters", () => {
     it("publishes a one-chapter book with its metadata, title page, contents, and chapter anchor", async () => {
-        const project = createSingleChapterBook("# Opening chapter\n\nThe first page.", "A one-chapter book");
+        const project = createSingleChapterBook(
+            "# Opening chapter\n\nThe first page.",
+            "A one-chapter book"
+        );
         const exporters = [
             [ExportFormat.HTML, HtmlExporter],
             [ExportFormat.EPUB, EpubExporter],
@@ -412,7 +418,9 @@ describe("publishing exporters", () => {
         );
         await new EpubExporter(epubSaver).export(source);
         const epub = unzipSync(new Uint8Array(await (epubSaver.blob as Blob).arrayBuffer()));
-        expect(new TextDecoder().decode(epub["OEBPS/package.opf"])).toContain('<dc:title id="pub-title">A real title</dc:title>');
+        expect(new TextDecoder().decode(epub["OEBPS/package.opf"])).toContain(
+            '<dc:title id="pub-title">A real title</dc:title>'
+        );
         expect(epubSaver.filename).toBe("a-real-title.epub");
 
         const docxSaver = new MemoryFileSaver();
@@ -428,7 +436,9 @@ describe("publishing exporters", () => {
         );
         await new DocxExporter(docxSaver).export(docxRequest);
         const docx = unzipSync(new Uint8Array(await (docxSaver.blob as Blob).arrayBuffer()));
-        expect(new TextDecoder().decode(docx["docProps/core.xml"])).toContain("<dc:title>A real title</dc:title>");
+        expect(new TextDecoder().decode(docx["docProps/core.xml"])).toContain(
+            "<dc:title>A real title</dc:title>"
+        );
         expect(docxSaver.filename).toBe("a-real-title.docx");
     });
 
@@ -438,10 +448,19 @@ describe("publishing exporters", () => {
             ...base,
             manifest: {
                 ...base.manifest,
-                metadata: { ...base.manifest.metadata, authors: ["A. Writer"], publisher: "Local Press" },
+                metadata: {
+                    ...base.manifest.metadata,
+                    authors: ["A. Writer"],
+                    publisher: "Local Press"
+                },
                 entries: [
                     { ...base.manifest.entries[0]!, title: "First chapter" },
-                    { id: "chapter-2", role: "chapter" as const, path: "chapters/chapter-2.md", title: "Second chapter" }
+                    {
+                        id: "chapter-2",
+                        role: "chapter" as const,
+                        path: "chapters/chapter-2.md",
+                        title: "Second chapter"
+                    }
                 ]
             },
             files: { ...base.files, "chapters/chapter-2.md": "Second chapter body." }
@@ -458,7 +477,9 @@ describe("publishing exporters", () => {
         expect(new TextDecoder().decode(epub["OEBPS/titlepage.xhtml"])).toContain("A. Writer");
         expect(nav).toContain("First chapter");
         expect(nav).toContain("Second chapter");
-        expect(new TextDecoder().decode(epub["OEBPS/chapter-2.xhtml"])).toContain("Second chapter body.");
+        expect(new TextDecoder().decode(epub["OEBPS/chapter-2.xhtml"])).toContain(
+            "Second chapter body."
+        );
 
         const docxSaver = new MemoryFileSaver();
         await new DocxExporter(docxSaver).export(request(ExportFormat.DOCX, project));
@@ -466,7 +487,7 @@ describe("publishing exporters", () => {
         const documentXml = new TextDecoder().decode(docx["word/document.xml"]);
         expect(documentXml).toContain("First chapter");
         expect(documentXml).toContain("Second chapter");
-        expect(documentXml).toContain("w:type=\"page\"");
+        expect(documentXml).toContain('w:type="page"');
         expect(documentXml).toMatch(/<w:pgSz[^>]*w:w="11906"[^>]*w:h="16838"/);
         expect(documentXml).toContain('w:pgMar w:top="1134"');
         expect(new TextDecoder().decode(docx["word/header1.xml"])).toContain("A test book");
@@ -483,7 +504,8 @@ describe("publishing exporters", () => {
             files: {
                 ...base.files,
                 [base.manifest.entries[0]!.path]: "An idea [@smith2020].",
-                "references.bib": "@book{smith2020, author={John Smith}, title={A Book}, year={2020}, publisher={Local Press}}"
+                "references.bib":
+                    "@book{smith2020, author={John Smith}, title={A Book}, year={2020}, publisher={Local Press}}"
             }
         };
         const exporters = [
@@ -496,14 +518,15 @@ describe("publishing exporters", () => {
             const saver = new MemoryFileSaver();
             await new Exporter(saver).export(request(format, project));
             const bytes = new Uint8Array(await (saver.blob as Blob).arrayBuffer());
-            const output = format === ExportFormat.HTML
-                ? await (saver.blob as Blob).text()
-                : format === ExportFormat.PDF
-                    ? new TextDecoder("latin1").decode(bytes)
-                    : Object.entries(unzipSync(bytes))
-                        .filter(([path]) => path.endsWith(".xml") || path.endsWith(".xhtml"))
-                        .map(([, file]) => new TextDecoder().decode(file))
-                        .join("\n");
+            const output =
+                format === ExportFormat.HTML
+                    ? await (saver.blob as Blob).text()
+                    : format === ExportFormat.PDF
+                      ? new TextDecoder("latin1").decode(bytes)
+                      : Object.entries(unzipSync(bytes))
+                            .filter(([path]) => path.endsWith(".xml") || path.endsWith(".xhtml"))
+                            .map(([, file]) => new TextDecoder().decode(file))
+                            .join("\n");
             expect(output).toContain("Smith");
             expect(output).toContain("A Book");
         }
@@ -514,7 +537,11 @@ describe("publishing exporters", () => {
         const project = {
             ...base,
             manifest: { ...base.manifest, bibliographyPath: "references.bib" },
-            files: { ...base.files, "references.bib": "@book{known, author={A Writer}, title={Another Book}, year={2020}}" }
+            files: {
+                ...base.files,
+                "references.bib":
+                    "@book{known, author={A Writer}, title={Another Book}, year={2020}}"
+            }
         };
         const saver = new MemoryFileSaver();
         await new HtmlExporter(saver).export(request(ExportFormat.HTML, project));
@@ -525,9 +552,14 @@ describe("publishing exporters", () => {
 
     it("publishes a shared Markdown conformance corpus in every format", async () => {
         const project = conformanceProject();
-        const markdownRenderer = new UnifiedMarkdownRenderer(new DirectDomWriter(), new FixedClock());
-        const renderedCorpus = await withSvgMeasurements(async () =>
-            (await markdownRenderer.render(MarkdownDocument.initial(CONFORMANCE_MARKDOWN))).content
+        const markdownRenderer = new UnifiedMarkdownRenderer(
+            new DirectDomWriter(),
+            new FixedClock()
+        );
+        const renderedCorpus = await withSvgMeasurements(
+            async () =>
+                (await markdownRenderer.render(MarkdownDocument.initial(CONFORMANCE_MARKDOWN)))
+                    .content
         );
         expect(renderedCorpus.querySelector(".hljs-keyword")?.textContent).toBe("const");
         expect(renderedCorpus.querySelector("svg.markdown-diagram")).not.toBeNull();
@@ -594,17 +626,46 @@ describe("publishing exporters", () => {
             files: {
                 ...base.files,
                 [base.manifest.entries[0]!.path]: citedSource,
-                [bibliographyPath]: "@book{smith2020, author={John Smith}, title={A Book}, year={2020}}"
+                [bibliographyPath]:
+                    "@book{smith2020, author={John Smith}, title={A Book}, year={2020}}"
             }
         };
 
         for (const prefix of ["FIRST", "SECOND"]) {
-            const project = { ...baseProject, files: { ...baseProject.files, [stylePath]: cslWithCitationPrefix(prefix) } };
+            const project = {
+                ...baseProject,
+                files: { ...baseProject.files, [stylePath]: cslWithCitationPrefix(prefix) }
+            };
             const saver = new MemoryFileSaver();
             await new HtmlExporter(saver).export(request(ExportFormat.HTML, project));
             const html = await readExportText(saver, ExportFormat.HTML);
             expect(html).toContain(`${prefix}[A Book]`);
         }
+    }, 30_000);
+
+    it("publishes citations with each bundled APA, Harvard, and Vancouver style", async () => {
+        const base = createSingleChapterBook("An idea [@smith2020].", "A test book");
+        const bibliographyPath = "references/library.bib";
+        const bibliography =
+            "@book{smith2020, author={John Smith}, title={A Book}, year={2020}, publisher={Local Press}}";
+        const outputs = new Map<string, string>();
+
+        for (const style of ["apa", "harvard1", "vancouver"] as const) {
+            const project = {
+                ...base,
+                manifest: { ...base.manifest, bibliographyPath, citationStyleId: style },
+                files: { ...base.files, [bibliographyPath]: bibliography }
+            };
+            const saver = new MemoryFileSaver();
+            await new HtmlExporter(saver).export(request(ExportFormat.HTML, project));
+            const html = await readExportText(saver, ExportFormat.HTML);
+            expect(html).toContain("A Book");
+            expect(html).toContain("Smith");
+            outputs.set(style, html);
+        }
+
+        expect(new Set(outputs.values()).size).toBe(3);
+        expect(outputs.get("vancouver")).toMatch(/\[1\]|\(1\)/);
     }, 30_000);
 
     it("publishes manuscript language and metadata with unique, semantic EPUB navigation", async () => {
@@ -617,15 +678,23 @@ describe("publishing exporters", () => {
         const frontMatter = new TextDecoder().decode(epub["OEBPS/chapter-1.xhtml"]);
         const bodyMatter = new TextDecoder().decode(epub["OEBPS/chapter-2.xhtml"]);
         const backMatter = new TextDecoder().decode(epub["OEBPS/chapter-3.xhtml"]);
-        const chapterIds = [...packageXml.matchAll(/<item id="([^"]+)" href="chapter-\d+\.xhtml"/g)].map((match) => match[1]);
+        const chapterIds = [
+            ...packageXml.matchAll(/<item id="([^"]+)" href="chapter-\d+\.xhtml"/g)
+        ].map((match) => match[1]);
 
-        expect(packageXml).toContain("<dc:title id=\"pub-title\">A multilingual book</dc:title>");
+        expect(packageXml).toContain('<dc:title id="pub-title">A multilingual book</dc:title>');
         expect(packageXml).toContain("A short subtitle");
         expect(packageXml).toContain("9781234567890");
         expect(packageXml).toContain("<dc:language>zh-CN</dc:language>");
-        expect(packageXml).toContain("<dc:description>A short description of the book.</dc:description>");
-        expect(packageXml).toContain('<meta property="schema:accessibilityFeature">alternativeText</meta>');
-        expect(packageXml).toContain('href="chapter-2.xhtml" media-type="application/xhtml+xml" properties="mathml svg"');
+        expect(packageXml).toContain(
+            "<dc:description>A short description of the book.</dc:description>"
+        );
+        expect(packageXml).toContain(
+            '<meta property="schema:accessibilityFeature">alternativeText</meta>'
+        );
+        expect(packageXml).toContain(
+            'href="chapter-2.xhtml" media-type="application/xhtml+xml" properties="mathml svg"'
+        );
         expect(new Set(chapterIds).size).toBe(3);
         expect(chapterIds.every((id) => id?.startsWith("book-chapter-"))).toBe(true);
         expect(nav).toContain('epub:type="landmarks"');
@@ -646,15 +715,21 @@ describe("publishing exporters", () => {
         const html = await (htmlSaver.blob as Blob).text();
         expect(html).toContain('<html lang="zh-CN">');
         expect(html).toContain("<title>A multilingual book</title>");
-        expect(html).toContain('<meta name="description" content="A short description of the book.">');
+        expect(html).toContain(
+            '<meta name="description" content="A short description of the book.">'
+        );
         expect(html).toContain('<meta name="language" content="zh-CN">');
         expect(html).toContain('<meta name="isbn" content="9781234567890">');
         expect(html).toContain("@media print{body{padding:0}}");
-        const headingIds = [...html.matchAll(/id="([^"]+-shared-heading)"/g)].map((match) => match[1]);
+        const headingIds = [...html.matchAll(/id="([^"]+-shared-heading)"/g)].map(
+            (match) => match[1]
+        );
         expect(headingIds).toHaveLength(3);
         expect(new Set(headingIds).size).toBe(3);
         for (const id of headingIds) expect(html).toContain(`href="#${id}"`);
-        const footnoteIds = [...html.matchAll(/id="([^"]+-user-content-fn-source)"/g)].map((match) => match[1]);
+        const footnoteIds = [...html.matchAll(/id="([^"]+-user-content-fn-source)"/g)].map(
+            (match) => match[1]
+        );
         expect(footnoteIds).toHaveLength(2);
         expect(new Set(footnoteIds).size).toBe(2);
     });
@@ -672,7 +747,11 @@ describe("publishing exporters", () => {
         expect(core).toContain("A short description of the book.");
         expect(styles).toContain('w:val="zh-CN"');
         expect(documentXml).toContain("A labeled diagram");
-        expect(Object.keys(archive).some((path) => path.startsWith("word/media/") && path.endsWith(".svg"))).toBe(true);
+        expect(
+            Object.keys(archive).some(
+                (path) => path.startsWith("word/media/") && path.endsWith(".svg")
+            )
+        ).toBe(true);
         expect(footnotes).toContain("A second footnote.");
     });
 
@@ -683,7 +762,11 @@ describe("publishing exporters", () => {
         const chapter = document.createElement("article");
         chapter.innerHTML = "<h1>数学入门</h1><p>Chapter body</p>";
         content.append(chapter);
-        const rendered = new RenderedDocument(content.cloneNode(true) as DocumentFragment, title, 0);
+        const rendered = new RenderedDocument(
+            content.cloneNode(true) as DocumentFragment,
+            title,
+            0
+        );
         const exporters = [
             [ExportFormat.HTML, HtmlExporter],
             [ExportFormat.EPUB, EpubExporter],

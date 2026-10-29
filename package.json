@@ -26,7 +26,8 @@
         "test": "vitest run",
         "test:watch": "vitest",
         "test:e2e": "playwright test",
-        "test:e2e:matrix": "node scripts/run-playwright-matrix.mjs"
+        "test:e2e:matrix": "node scripts/run-playwright-matrix.mjs",
+        "test:perf": "node scripts/run-performance-test.mjs"
     },
     "dependencies": {
         "@citation-js/core": "^0.9.0",

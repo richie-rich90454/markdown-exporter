@@ -71,7 +71,9 @@ export class EditorHistory {
         this.maxSteps = positiveInteger(options.maxSteps, DEFAULT_MAX_STEPS);
         this.maxBytes = positiveInteger(options.maxBytes, DEFAULT_MAX_BYTES);
         const groupDelay = options.groupDelayMs ?? DEFAULT_GROUP_DELAY_MS;
-        this.groupDelayMs = Number.isFinite(groupDelay) ? Math.max(0, groupDelay) : DEFAULT_GROUP_DELAY_MS;
+        this.groupDelayMs = Number.isFinite(groupDelay)
+            ? Math.max(0, groupDelay)
+            : DEFAULT_GROUP_DELAY_MS;
         this.source = initialSource;
     }
 
@@ -97,8 +99,14 @@ export class EditorHistory {
     }
 
     hasExternalAction(actionId: string): boolean {
-        return this.undoEntries.some((entry) => entry.type === "external" && entry.actionId === actionId) ||
-            this.redoEntries.some((entry) => entry.type === "external" && entry.actionId === actionId);
+        return (
+            this.undoEntries.some(
+                (entry) => entry.type === "external" && entry.actionId === actionId
+            ) ||
+            this.redoEntries.some(
+                (entry) => entry.type === "external" && entry.actionId === actionId
+            )
+        );
     }
 
     retainedBytes(): number {
@@ -200,8 +208,13 @@ export class EditorHistory {
      * manuscript-wide replacement. Its active-source patch occupies one
      * chronological history step alongside ordinary edits.
      */
-    recordExternalTransition(actionId: string, nextSource: string, retainedPayloadBytes = 0): boolean {
-        if (actionId.trim().length === 0) throw new Error("An external history action needs an id.");
+    recordExternalTransition(
+        actionId: string,
+        nextSource: string,
+        retainedPayloadBytes = 0
+    ): boolean {
+        if (actionId.trim().length === 0)
+            throw new Error("An external history action needs an id.");
         if (!Number.isSafeInteger(retainedPayloadBytes) || retainedPayloadBytes < 0) {
             throw new Error("External history payload size must be a non-negative integer.");
         }
@@ -337,7 +350,8 @@ function diffSource(before: string, after: string): SourcePatch {
     const suffixLimit = sharedLimit - prefix;
     while (
         suffix < suffixLimit &&
-        before.charCodeAt(before.length - suffix - 1) === after.charCodeAt(after.length - suffix - 1)
+        before.charCodeAt(before.length - suffix - 1) ===
+            after.charCodeAt(after.length - suffix - 1)
     ) {
         suffix += 1;
     }
@@ -356,14 +370,18 @@ function patchesAreAdjacent(
 ): boolean {
     if (previous === undefined) return false;
     if (kind === "typing") {
-        return next.removed.length === 0 &&
+        return (
+            next.removed.length === 0 &&
             previous.inserted.length > 0 &&
-            next.from === previous.from + previous.inserted.length;
+            next.from === previous.from + previous.inserted.length
+        );
     }
     if (kind === "deletion") {
-        return next.inserted.length === 0 &&
+        return (
+            next.inserted.length === 0 &&
             previous.inserted.length === 0 &&
-            (next.from === previous.from || next.from + next.removed.length === previous.from);
+            (next.from === previous.from || next.from + next.removed.length === previous.from)
+        );
     }
     return false;
 }
@@ -375,7 +393,8 @@ function applyPatch(source: string, patch: SourcePatch, inverse: boolean): strin
         !Number.isSafeInteger(patch.from) ||
         patch.from < 0 ||
         patch.from + expected.length > source.length
-    ) return undefined;
+    )
+        return undefined;
     if (source.slice(patch.from, patch.from + expected.length) !== expected) return undefined;
     return source.slice(0, patch.from) + replacement + source.slice(patch.from + expected.length);
 }

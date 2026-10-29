@@ -46,7 +46,10 @@ export function pageHeightPt(setup: PageSetup): number {
     return pageDimensions(setup).heightMm * PT_PER_MM;
 }
 
-export function pageDimensions(setup: PageSetup): { readonly widthMm: number; readonly heightMm: number } {
+export function pageDimensions(setup: PageSetup): {
+    readonly widthMm: number;
+    readonly heightMm: number;
+} {
     if (setup.pageSize !== "custom") return PAGE_SIZES[setup.pageSize];
     const fallback = PAGE_SIZES.custom;
     return {
@@ -56,7 +59,9 @@ export function pageDimensions(setup: PageSetup): { readonly widthMm: number; re
 }
 
 function boundedDimension(value: number | undefined, fallback: number): number {
-    return value !== undefined && Number.isFinite(value) ? Math.max(80, Math.min(500, value)) : fallback;
+    return value !== undefined && Number.isFinite(value)
+        ? Math.max(80, Math.min(500, value))
+        : fallback;
 }
 
 export function marginPt(setup: PageSetup): number {

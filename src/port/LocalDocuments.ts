@@ -15,7 +15,10 @@ export interface LocalDirectoryHandle {
     readonly name: string;
     values(): AsyncIterable<LocalFileHandle | LocalDirectoryHandle>;
     getFileHandle(name: string, options?: { create?: boolean }): Promise<LocalFileHandle>;
-    getDirectoryHandle?(name: string, options?: { create?: boolean }): Promise<LocalDirectoryHandle>;
+    getDirectoryHandle?(
+        name: string,
+        options?: { create?: boolean }
+    ): Promise<LocalDirectoryHandle>;
     removeEntry?(name: string): Promise<void>;
 }
 

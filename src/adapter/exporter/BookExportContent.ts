@@ -38,10 +38,19 @@ export async function renderBookSections(request: ExportRequest): Promise<Render
     const project = request.bookProject;
     const entries = project?.manifest.entries ?? [];
     if (project === undefined || entries.length === 0) {
-        return [{ entry: undefined, title: request.title || "Untitled manuscript", anchorId: "", content: request.content.cloneNode(true) }];
+        return [
+            {
+                entry: undefined,
+                title: request.title || "Untitled manuscript",
+                anchorId: "",
+                content: request.content.cloneNode(true)
+            }
+        ];
     }
     if (request.isBookProject && request.renderSource === undefined) {
-        throw new Error("The book cannot be exported because its Markdown renderer is unavailable.");
+        throw new Error(
+            "The book cannot be exported because its Markdown renderer is unavailable."
+        );
     }
 
     const sections: RenderedBookSection[] = [];
@@ -51,10 +60,13 @@ export async function renderBookSections(request: ExportRequest): Promise<Render
         if (typeof source !== "string") {
             throw new Error(`The Markdown file for “${entry.title}” is missing.`);
         }
-        const rendered = request.renderSource === undefined
-            ? request.content.cloneNode(true)
-            : await request.renderSource(source);
-        const anchorId = request.isBookProject ? uniqueAnchorId(entry.id, index + 1, usedAnchorIds) : "";
+        const rendered =
+            request.renderSource === undefined
+                ? request.content.cloneNode(true)
+                : await request.renderSource(source);
+        const anchorId = request.isBookProject
+            ? uniqueAnchorId(entry.id, index + 1, usedAnchorIds)
+            : "";
         const content = request.isBookProject
             ? withSectionHeading(rendered, entry.title, anchorId)
             : rendered;
@@ -74,7 +86,12 @@ export function resolveBookImageReferences(
     project: BookProject | undefined,
     chapterPath: string | undefined
 ): void {
-    if (project === undefined || chapterPath === undefined || !(content instanceof Element || content instanceof DocumentFragment)) return;
+    if (
+        project === undefined ||
+        chapterPath === undefined ||
+        !(content instanceof Element || content instanceof DocumentFragment)
+    )
+        return;
     for (const image of Array.from(content.querySelectorAll<HTMLImageElement>("img"))) {
         const source = image.getAttribute("src") ?? "";
         if (source.length === 0 || /^(?:data:|blob:|https?:|\/\/|\/)/i.test(source)) continue;
@@ -141,9 +158,10 @@ export function createBookContentsPage(sections: readonly RenderedBookSection[])
         const link = document.createElement("a");
         const anchorId = section.anchorId || `book-section-${index + 1}`;
         if (section.anchorId.length === 0) {
-            const heading = (section.content instanceof Element || section.content instanceof DocumentFragment)
-                ? section.content.querySelector<HTMLElement>("h1,h2,h3,h4,h5,h6")
-                : null;
+            const heading =
+                section.content instanceof Element || section.content instanceof DocumentFragment
+                    ? section.content.querySelector<HTMLElement>("h1,h2,h3,h4,h5,h6")
+                    : null;
             if (heading !== null) heading.id = anchorId;
         }
         link.href = `#${anchorId}`;
@@ -165,7 +183,10 @@ export function serializeContent(content: Node): string {
 }
 
 export function chapterAnchorId(entryId: string): string {
-    const id = entryId.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+    const id = entryId
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, "-")
+        .replace(/^-+|-+$/g, "");
     return `book-chapter-${id || "untitled"}`;
 }
 
@@ -211,23 +232,38 @@ function namespaceSectionIds(content: Node, sectionId: string): void {
             if (value === null || !value.startsWith("#")) continue;
             const fragment = decodeFragment(value.slice(1));
             const namespaced = ids.get(fragment);
-            if (namespaced !== undefined) element.setAttribute(attribute, `#${encodeURIComponent(namespaced)}`);
+            if (namespaced !== undefined)
+                element.setAttribute(attribute, `#${encodeURIComponent(namespaced)}`);
         }
         for (const attribute of [
-            "aria-labelledby", "aria-describedby", "aria-controls", "aria-owns", "aria-flowto",
-            "aria-details", "aria-errormessage", "for", "headers", "list"
+            "aria-labelledby",
+            "aria-describedby",
+            "aria-controls",
+            "aria-owns",
+            "aria-flowto",
+            "aria-details",
+            "aria-errormessage",
+            "for",
+            "headers",
+            "list"
         ]) {
             const value = element.getAttribute(attribute);
             if (value === null) continue;
-            const namespaced = value.split(/\s+/).map((id) => ids.get(id) ?? id).join(" ");
+            const namespaced = value
+                .split(/\s+/)
+                .map((id) => ids.get(id) ?? id)
+                .join(" ");
             if (namespaced !== value) element.setAttribute(attribute, namespaced);
         }
     }
 }
 
 function decodeFragment(value: string): string {
-    try { return decodeURIComponent(value); }
-    catch { return value; }
+    try {
+        return decodeURIComponent(value);
+    } catch {
+        return value;
+    }
 }
 
 function withSectionHeading(content: Node, title: string, anchorId: string): Node {
@@ -235,7 +271,9 @@ function withSectionHeading(content: Node, title: string, anchorId: string): Nod
     const children = Array.from(content.childNodes).filter(
         (node) => node.nodeType !== Node.TEXT_NODE || (node.textContent ?? "").trim().length > 0
     );
-    const first = children.find((node) => node.nodeType === Node.ELEMENT_NODE) as HTMLElement | undefined;
+    const first = children.find((node) => node.nodeType === Node.ELEMENT_NODE) as
+        | HTMLElement
+        | undefined;
     if (first?.tagName === "H1" && first.textContent?.trim() === title.trim()) {
         first.id = anchorId;
         return content;
@@ -253,7 +291,11 @@ function withSectionHeading(content: Node, title: string, anchorId: string): Nod
 
 function resolveProjectPath(chapterPath: string, source: string): string {
     let decoded = source.split(/[?#]/, 1)[0] ?? source;
-    try { decoded = decodeURIComponent(decoded); } catch { return ""; }
+    try {
+        decoded = decodeURIComponent(decoded);
+    } catch {
+        return "";
+    }
     const parts = chapterPath.split("/").slice(0, -1);
     for (const part of decoded.split("/")) {
         if (part === "" || part === ".") continue;
@@ -269,12 +311,19 @@ function resolveProjectPath(chapterPath: string, source: string): string {
 
 function mimeForPath(path: string): string {
     switch (path.toLowerCase().split(".").at(-1)) {
-        case "jpg": case "jpeg": return "image/jpeg";
-        case "gif": return "image/gif";
-        case "svg": return "image/svg+xml";
-        case "webp": return "image/webp";
-        case "avif": return "image/avif";
-        default: return "image/png";
+        case "jpg":
+        case "jpeg":
+            return "image/jpeg";
+        case "gif":
+            return "image/gif";
+        case "svg":
+            return "image/svg+xml";
+        case "webp":
+            return "image/webp";
+        case "avif":
+            return "image/avif";
+        default:
+            return "image/png";
     }
 }
 

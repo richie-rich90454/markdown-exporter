@@ -24,7 +24,12 @@ describe("BookProjectStore", () => {
                 ...base.manifest,
                 entries: [
                     ...base.manifest.entries,
-                    { id: "chapter-2", role: "chapter" as const, path: "chapters/second.md", title: "Second" }
+                    {
+                        id: "chapter-2",
+                        role: "chapter" as const,
+                        path: "chapters/second.md",
+                        title: "Second"
+                    }
                 ]
             },
             files: {
@@ -52,7 +57,12 @@ describe("BookProjectStore", () => {
                 ...first.manifest,
                 entries: [
                     ...first.manifest.entries,
-                    { id: "chapter-2", role: "chapter" as const, path: "chapters/second.md", title: "Second" }
+                    {
+                        id: "chapter-2",
+                        role: "chapter" as const,
+                        path: "chapters/second.md",
+                        title: "Second"
+                    }
                 ]
             },
             files: {
@@ -95,13 +105,18 @@ describe("BookProjectStore", () => {
     });
 
     it("counts TOML-fronted prose and segments CJK words without whitespace", () => {
-        expect(wordCounter.countMarkdownWords([
-            "+++",
-            'title = "Metadata words do not count"',
-            "date = 2026-10-28",
-            "+++",
-            "你好，世界！ A short sentence."
-        ].join("\n"), "zh-CN")).toBe(5);
+        expect(
+            wordCounter.countMarkdownWords(
+                [
+                    "+++",
+                    'title = "Metadata words do not count"',
+                    "date = 2026-10-28",
+                    "+++",
+                    "你好，世界！ A short sentence."
+                ].join("\n"),
+                "zh-CN"
+            )
+        ).toBe(5);
     });
 
     it("keeps cached section and manuscript counts current across edits, removals, and reordering", () => {
@@ -113,8 +128,18 @@ describe("BookProjectStore", () => {
                 ...first.manifest,
                 entries: [
                     ...first.manifest.entries,
-                    { id: "chapter-2", role: "chapter" as const, path: "chapters/second.md", title: "Second" },
-                    { id: "chapter-3", role: "chapter" as const, path: "chapters/third.md", title: "Third" }
+                    {
+                        id: "chapter-2",
+                        role: "chapter" as const,
+                        path: "chapters/second.md",
+                        title: "Second"
+                    },
+                    {
+                        id: "chapter-3",
+                        role: "chapter" as const,
+                        path: "chapters/third.md",
+                        title: "Third"
+                    }
                 ]
             },
             files: {
@@ -171,7 +196,12 @@ describe("BookProjectStore", () => {
                 ...first.manifest,
                 entries: [
                     ...first.manifest.entries,
-                    { id: "chapter-2", role: "chapter" as const, path: "chapters/second.md", title: "Second" }
+                    {
+                        id: "chapter-2",
+                        role: "chapter" as const,
+                        path: "chapters/second.md",
+                        title: "Second"
+                    }
                 ]
             },
             files: { ...first.files, "chapters/second.md": "Nothing to change here." }
@@ -213,14 +243,15 @@ describe("BookProjectStore", () => {
     });
 
     it("keeps chapter YAML front matter, book metadata, and local reference files together", () => {
-        const chapterSource = "---\ntitle: Source title\nauthor: A Writer\n---\n\n# Opening\n\nFirst draft.";
+        const chapterSource =
+            "---\ntitle: Source title\nauthor: A Writer\n---\n\n# Opening\n\nFirst draft.";
         const store = new BookProjectStore();
         store.open(createSingleChapterBook(chapterSource, "Project title"));
         const preface = store.addEntry("front-matter", "Preface");
         const appendix = store.addEntry("back-matter", "Appendix");
         store.putFile("references/local.bib", "@book{local, title={Local source}}");
         store.setBibliographyPath("references/local.bib");
-        store.putFile("styles/custom.csl", "<style version=\"1.0\"/>");
+        store.putFile("styles/custom.csl", '<style version="1.0"/>');
         store.setCitationStylePath("styles/custom.csl");
         store.updateMetadata({
             title: "Updated project title",
@@ -248,13 +279,44 @@ describe("BookProjectStore", () => {
         });
         expect(project.manifest.bibliographyPath).toBe("references/local.bib");
         expect(project.manifest.citationStylePath).toBe("styles/custom.csl");
-        expect(project.files["chapters/chapter-1.md"]).toBe(`${chapterSource}\n\nRevised paragraph.`);
+        expect(project.files["chapters/chapter-1.md"]).toBe(
+            `${chapterSource}\n\nRevised paragraph.`
+        );
         expect(project.files["references/local.bib"]).toContain("@book{local");
         expect(project.files["styles/custom.csl"]).toContain("<style");
         expect(store.search("opening note").map((match) => match.entryId)).toEqual([preface.id]);
         expect(store.getManuscriptWordCount()).toBe(
-            project.manifest.entries.reduce((total, entry) => total + store.getChapterWordCount(entry.id), 0)
+            project.manifest.entries.reduce(
+                (total, entry) => total + store.getChapterWordCount(entry.id),
+                0
+            )
         );
+    });
+
+    it("edits BibTeX in place, creates a collision-free file when needed, and switches bundled citation styles", () => {
+        const base = createSingleChapterBook("# Opening", "A book");
+        const store = new BookProjectStore();
+        store.open({
+            ...base,
+            files: { ...base.files, "references/library.bib": "Existing unrelated file" }
+        });
+
+        store.updateBibliography("@book{smith2020, title={A Book}} ");
+        expect(store.current().manifest.bibliographyPath).toBe("references/library-2.bib");
+        expect(store.current().files["references/library-2.bib"]).toBe(
+            "@book{smith2020, title={A Book}} "
+        );
+        expect(store.current().files["references/library.bib"]).toBe("Existing unrelated file");
+
+        store.updateBibliography("@book{smith2020, title={Revised title}} ");
+        expect(store.current().files["references/library-2.bib"]).toContain("Revised title");
+        store.putFile("styles/custom.csl", '<style version="1.0" />');
+        store.setCitationStylePath("styles/custom.csl");
+        expect(store.current().manifest.citationStylePath).toBe("styles/custom.csl");
+        store.setBuiltInCitationStyle("vancouver");
+        expect(store.current().manifest.citationStyleId).toBe("vancouver");
+        expect(store.current().manifest.citationStylePath).toBeUndefined();
+        expect(store.current().files["styles/custom.csl"]).toContain("<style");
     });
 
     it("rejects an asset path that would invalidate an existing folder layout", () => {
@@ -265,8 +327,9 @@ describe("BookProjectStore", () => {
             files: { ...project.files, "assets/cover-notes.txt": "Notes" }
         });
 
-        expect(() => store.putFile("assets", "This would be a file and a folder."))
-            .toThrow(/conflicts with a folder/i);
+        expect(() => store.putFile("assets", "This would be a file and a folder.")).toThrow(
+            /conflicts with a folder/i
+        );
         expect(store.current().files.assets).toBeUndefined();
         expect(store.current().files["assets/cover-notes.txt"]).toBe("Notes");
     });

@@ -30,7 +30,10 @@ function stripNonProse(source: string): string {
         .replace(/<!--[\s\S]*?-->/g, " ")
         .replace(/^[ \t]{0,3}\[[^\]]+\]:\s*(?:<[^>]*>|\S+).*$/gm, " ")
         .replace(/`+[^`\r\n]*`+/g, " ")
-        .replace(/!?\[([^\]]*)\]\(\s*(?:<[^>]*>|(?:\\.|[^()\s])*(?:\([^)]*\)(?:[^()\s]*)*)?)(?:\s+["'][^"']*["'])?\s*\)/g, "$1")
+        .replace(
+            /!?\[([^\]]*)\]\(\s*(?:<[^>]*>|(?:\\.|[^()\s])*(?:\([^)]*\)(?:[^()\s]*)*)?)(?:\s+["'][^"']*["'])?\s*\)/g,
+            "$1"
+        )
         .replace(/\[\^([^\]]+)\]/g, " ")
         .replace(/<https?:\/\/[^>]+>|<mailto:[^>]+>/gi, " ")
         .replace(/https?:\/\/\S+|www\.\S+/gi, " ")
@@ -48,8 +51,38 @@ function stripNonProse(source: string): string {
 }
 
 const escapedMarkdownPunctuation = new Set([
-    "!", '"', "#", "$", "%", "&", "'", "(", ")", "*", "+", ",", "-", ".", "/",
-    ":", ";", "<", "=", ">", "?", "@", "[", "\\", "]", "^", "_", "`", "{", "|", "}", "~"
+    "!",
+    '"',
+    "#",
+    "$",
+    "%",
+    "&",
+    "'",
+    "(",
+    ")",
+    "*",
+    "+",
+    ",",
+    "-",
+    ".",
+    "/",
+    ":",
+    ";",
+    "<",
+    "=",
+    ">",
+    "?",
+    "@",
+    "[",
+    "\\",
+    "]",
+    "^",
+    "_",
+    "`",
+    "{",
+    "|",
+    "}",
+    "~"
 ]);
 
 function stripFrontMatter(source: string): string {
@@ -85,13 +118,17 @@ function stripFencedCode(source: string): string {
 
 function stripFootnoteDefinitionMarkers(source: string): string {
     let insideFootnote = false;
-    return source.split(/\r?\n/).map((line) => {
-        if (/^ {0,3}\[\^[^\]]+\]:/.test(line)) {
-            insideFootnote = true;
-            return line.replace(/^ {0,3}\[\^[^\]]+\]:[ \t]?/, "");
-        }
-        if (insideFootnote && /^(?: {2,}|\t)/.test(line)) return line.replace(/^(?: {2,}|\t)/, "");
-        if (line.trim().length > 0) insideFootnote = false;
-        return line;
-    }).join("\n");
+    return source
+        .split(/\r?\n/)
+        .map((line) => {
+            if (/^ {0,3}\[\^[^\]]+\]:/.test(line)) {
+                insideFootnote = true;
+                return line.replace(/^ {0,3}\[\^[^\]]+\]:[ \t]?/, "");
+            }
+            if (insideFootnote && /^(?: {2,}|\t)/.test(line))
+                return line.replace(/^(?: {2,}|\t)/, "");
+            if (line.trim().length > 0) insideFootnote = false;
+            return line;
+        })
+        .join("\n");
 }

@@ -8,7 +8,8 @@ import {
     updateBookChapter,
     validateBookProject,
     type BookEntry,
-    type BookProject
+    type BookProject,
+    type BuiltInCitationStyleId
 } from "../domain/BookProject";
 import { countMarkdownWords } from "../domain/BookWordCount";
 
@@ -28,7 +29,10 @@ export class BookProjectStore {
     private readonly setProject: Setter<BookProject>;
     private readonly setActiveEntryId: Setter<string>;
     private readonly setIsBookProject: Setter<boolean>;
-    private readonly wordCountCache = new Map<string, { readonly source: string; readonly count: number }>();
+    private readonly wordCountCache = new Map<
+        string,
+        { readonly source: string; readonly count: number }
+    >();
     private wordCountLanguage: string | undefined;
 
     constructor() {
@@ -67,7 +71,14 @@ export class BookProjectStore {
         const project = this.current();
         const nextMetadata = { ...project.manifest.metadata };
         for (const key of [
-            "title", "subtitle", "authors", "language", "publisher", "isbn", "description", "coverPath"
+            "title",
+            "subtitle",
+            "authors",
+            "language",
+            "publisher",
+            "isbn",
+            "description",
+            "coverPath"
         ] as const) {
             if (!Object.prototype.hasOwnProperty.call(metadata, key)) continue;
             const value = metadata[key];
@@ -81,7 +92,8 @@ export class BookProjectStore {
                 }
                 nextMetadata.authors = [...value];
             } else {
-                if (typeof value !== "string") throw new Error(`Book metadata field ${key} must be text.`);
+                if (typeof value !== "string")
+                    throw new Error(`Book metadata field ${key} must be text.`);
                 Object.assign(nextMetadata, { [key]: value });
             }
         }
@@ -101,21 +113,33 @@ export class BookProjectStore {
 
     putFile(path: string, data: BookProject["files"][string]): void {
         assertSafeBookPath(path);
-        if (isBookManifestPath(path)) throw new Error("The book.json manifest is managed by the book project.");
+        if (isBookManifestPath(path))
+            throw new Error("The book.json manifest is managed by the book project.");
         if (typeof data !== "string" && !(data instanceof Uint8Array)) {
             throw new Error("Book files must contain text or binary data.");
         }
         const project = this.current();
-        if (project.manifest.entries.some((entry) => canonicalBookPath(entry.path) === canonicalBookPath(path))) {
-            throw new Error("Edit a section in the editor instead of replacing its file as an asset.");
+        if (
+            project.manifest.entries.some(
+                (entry) => canonicalBookPath(entry.path) === canonicalBookPath(path)
+            )
+        ) {
+            throw new Error(
+                "Edit a section in the editor instead of replacing its file as an asset."
+            );
         }
-        const matchingPath = Object.keys(project.files).find((candidate) =>
-            canonicalBookPath(candidate) === canonicalBookPath(path)
+        const matchingPath = Object.keys(project.files).find(
+            (candidate) => canonicalBookPath(candidate) === canonicalBookPath(path)
         );
         const targetPath = matchingPath ?? path;
         const files = { ...project.files };
         const storedData = data instanceof Uint8Array ? new Uint8Array(data) : data;
-        Object.defineProperty(files, targetPath, { value: storedData, enumerable: true, configurable: true, writable: true });
+        Object.defineProperty(files, targetPath, {
+            value: storedData,
+            enumerable: true,
+            configurable: true,
+            writable: true
+        });
         this.setProject(validateBookProject({ ...project, files }));
     }
 
@@ -123,22 +147,63 @@ export class BookProjectStore {
         assertSafeBookPath(path);
         const project = this.current();
         const existingPath = resolveFilePath(project, path);
-        if (existingPath === undefined || typeof project.files[existingPath] !== "string") throw new Error("The bibliography file is missing.");
-        this.setProject(validateBookProject({
-            ...project,
-            manifest: { ...project.manifest, bibliographyPath: existingPath }
-        }));
+        if (existingPath === undefined || typeof project.files[existingPath] !== "string")
+            throw new Error("The bibliography file is missing.");
+        this.setProject(
+            validateBookProject({
+                ...project,
+                manifest: { ...project.manifest, bibliographyPath: existingPath }
+            })
+        );
     }
 
     setCitationStylePath(path: string): void {
         assertSafeBookPath(path);
         const project = this.current();
         const existingPath = resolveFilePath(project, path);
-        if (existingPath === undefined || typeof project.files[existingPath] !== "string") throw new Error("The citation style file is missing.");
-        this.setProject(validateBookProject({
-            ...project,
-            manifest: { ...project.manifest, citationStylePath: existingPath }
-        }));
+        if (existingPath === undefined || typeof project.files[existingPath] !== "string")
+            throw new Error("The citation style file is missing.");
+        this.setProject(
+            validateBookProject({
+                ...project,
+                manifest: { ...project.manifest, citationStylePath: existingPath }
+            })
+        );
+    }
+
+    setBuiltInCitationStyle(style: BuiltInCitationStyleId): void {
+        const project = this.current();
+        this.setProject(
+            validateBookProject({
+                ...project,
+                manifest: {
+                    ...project.manifest,
+                    citationStyleId: style,
+                    citationStylePath: undefined
+                }
+            })
+        );
+    }
+
+    updateBibliography(source: string): void {
+        const project = this.current();
+        const path =
+            project.manifest.bibliographyPath ??
+            unusedProjectPath(project, "references/library.bib");
+        const files = { ...project.files };
+        Object.defineProperty(files, path, {
+            value: source,
+            enumerable: true,
+            configurable: true,
+            writable: true
+        });
+        this.setProject(
+            validateBookProject({
+                ...project,
+                manifest: { ...project.manifest, bibliographyPath: path },
+                files
+            })
+        );
     }
 
     search(query: string): BookSearchMatch[] {
@@ -234,7 +299,8 @@ export class BookProjectStore {
         const entry = project.manifest.entries.find((candidate) => candidate.id === entryId);
         if (entry === undefined) throw new Error(`Unknown book entry: ${entryId}.`);
         const source = project.files[entry.path];
-        if (typeof source !== "string") throw new Error(`The Markdown file for “${entry.title}” is missing.`);
+        if (typeof source !== "string")
+            throw new Error(`The Markdown file for “${entry.title}” is missing.`);
         this.setActiveEntryId(entryId);
         return { entry, source };
     }
@@ -256,15 +322,24 @@ export class BookProjectStore {
         let suffix = project.manifest.entries.length + 1;
         let id = `${role}-${suffix}`;
         while (usedIds.has(id)) id = `${role}-${++suffix}`;
-        const directory = role === "chapter" ? "chapters" : role === "front-matter" ? "front-matter" : "back-matter";
+        const directory =
+            role === "chapter"
+                ? "chapters"
+                : role === "front-matter"
+                  ? "front-matter"
+                  : "back-matter";
         const base = slug(cleanedTitle);
         const usedPaths = new Set(Object.keys(project.files).map(canonicalBookPath));
-        if (project.manifest.metadata.coverPath !== undefined) usedPaths.add(canonicalBookPath(project.manifest.metadata.coverPath));
-        if (project.manifest.bibliographyPath !== undefined) usedPaths.add(canonicalBookPath(project.manifest.bibliographyPath));
-        if (project.manifest.citationStylePath !== undefined) usedPaths.add(canonicalBookPath(project.manifest.citationStylePath));
+        if (project.manifest.metadata.coverPath !== undefined)
+            usedPaths.add(canonicalBookPath(project.manifest.metadata.coverPath));
+        if (project.manifest.bibliographyPath !== undefined)
+            usedPaths.add(canonicalBookPath(project.manifest.bibliographyPath));
+        if (project.manifest.citationStylePath !== undefined)
+            usedPaths.add(canonicalBookPath(project.manifest.citationStylePath));
         let path = `${directory}/${base}.md`;
         let pathSuffix = 2;
-        while (usedPaths.has(canonicalBookPath(path))) path = `${directory}/${base}-${pathSuffix++}.md`;
+        while (usedPaths.has(canonicalBookPath(path)))
+            path = `${directory}/${base}-${pathSuffix++}.md`;
         const entry: BookEntry = { id, role, path, title: cleanedTitle };
         this.setProject({
             ...project,
@@ -292,7 +367,8 @@ export class BookProjectStore {
     }
 
     reorderEntry(entryId: string, targetIndex: number): void {
-        if (!Number.isFinite(targetIndex)) throw new Error("A section position must be a finite number.");
+        if (!Number.isFinite(targetIndex))
+            throw new Error("A section position must be a finite number.");
         const project = this.current();
         const entries = [...project.manifest.entries];
         const index = entries.findIndex((entry) => entry.id === entryId);
@@ -308,23 +384,39 @@ export class BookProjectStore {
         const project = this.current();
         const entry = project.manifest.entries.find((candidate) => candidate.id === entryId);
         if (entry === undefined) throw new Error(`Unknown book entry: ${entryId}.`);
-        if (entry.role === "chapter" && project.manifest.entries.filter((candidate) => candidate.role === "chapter").length === 1) {
+        if (
+            entry.role === "chapter" &&
+            project.manifest.entries.filter((candidate) => candidate.role === "chapter").length ===
+                1
+        ) {
             throw new Error("A book must keep at least one chapter.");
         }
-        if (canonicalBookPath(project.manifest.metadata.coverPath ?? "") === canonicalBookPath(entry.path)) {
+        if (
+            canonicalBookPath(project.manifest.metadata.coverPath ?? "") ===
+            canonicalBookPath(entry.path)
+        ) {
             throw new Error("Remove or change the book cover before removing its section file.");
         }
-        if (canonicalBookPath(project.manifest.bibliographyPath ?? "") === canonicalBookPath(entry.path)) {
+        if (
+            canonicalBookPath(project.manifest.bibliographyPath ?? "") ===
+            canonicalBookPath(entry.path)
+        ) {
             throw new Error("Change the bibliography file before removing its section file.");
         }
-        if (canonicalBookPath(project.manifest.citationStylePath ?? "") === canonicalBookPath(entry.path)) {
+        if (
+            canonicalBookPath(project.manifest.citationStylePath ?? "") ===
+            canonicalBookPath(entry.path)
+        ) {
             throw new Error("Change the citation style before removing its section file.");
         }
         const files = { ...project.files };
         delete files[entry.path];
         this.setProject({
             ...project,
-            manifest: { ...project.manifest, entries: project.manifest.entries.filter((candidate) => candidate.id !== entryId) },
+            manifest: {
+                ...project.manifest,
+                entries: project.manifest.entries.filter((candidate) => candidate.id !== entryId)
+            },
             files
         });
         if (this.activeEntryId() === entryId) {
@@ -335,10 +427,36 @@ export class BookProjectStore {
 }
 
 function slug(title: string): string {
-    return title.toLowerCase().normalize("NFKD").replace(/[^\p{Letter}\p{Number}]+/gu, "-").replace(/^-+|-+$/g, "") || "section";
+    return (
+        title
+            .toLowerCase()
+            .normalize("NFKD")
+            .replace(/[^\p{Letter}\p{Number}]+/gu, "-")
+            .replace(/^-+|-+$/g, "") || "section"
+    );
 }
 
 function resolveFilePath(project: BookProject, path: string): string | undefined {
     const pathKey = canonicalBookPath(path);
     return Object.keys(project.files).find((candidate) => canonicalBookPath(candidate) === pathKey);
+}
+
+function unusedProjectPath(project: BookProject, preferredPath: string): string {
+    const used = new Set(Object.keys(project.files).map(canonicalBookPath));
+    for (const path of [
+        ...project.manifest.entries.map((entry) => entry.path),
+        project.manifest.metadata.coverPath,
+        project.manifest.bibliographyPath,
+        project.manifest.citationStylePath
+    ]) {
+        if (path !== undefined) used.add(canonicalBookPath(path));
+    }
+    if (!used.has(canonicalBookPath(preferredPath))) return preferredPath;
+    const dot = preferredPath.lastIndexOf(".");
+    const stem = dot < 0 ? preferredPath : preferredPath.slice(0, dot);
+    const extension = dot < 0 ? "" : preferredPath.slice(dot);
+    let suffix = 2;
+    let candidate = `${stem}-${suffix}${extension}`;
+    while (used.has(canonicalBookPath(candidate))) candidate = `${stem}-${++suffix}${extension}`;
+    return candidate;
 }

@@ -75,16 +75,13 @@ export class PdfExporter implements DocumentExporter {
             katexFonts,
             {
                 language: metadata?.language || "en",
-                ...(metadata?.authors.length
-                    ? { author: metadata.authors.join("; ") }
-                    : {}),
-                ...(metadata?.description === undefined
-                    ? {}
-                    : { subject: metadata.description }),
-                keywords: [
-                    metadata?.publisher,
-                    metadata?.isbn
-                ].filter((value): value is string => value !== undefined && value.trim().length > 0).join("; ")
+                ...(metadata?.authors.length ? { author: metadata.authors.join("; ") } : {}),
+                ...(metadata?.description === undefined ? {} : { subject: metadata.description }),
+                keywords: [metadata?.publisher, metadata?.isbn]
+                    .filter(
+                        (value): value is string => value !== undefined && value.trim().length > 0
+                    )
+                    .join("; ")
             }
         );
         this.fileSaver.saveBlob(
@@ -95,7 +92,11 @@ export class PdfExporter implements DocumentExporter {
     }
 }
 
-function addRunningBookHeaders(layout: LaidOut, title: string, setup: ExportRequest["pageSetup"]): LaidOut {
+function addRunningBookHeaders(
+    layout: LaidOut,
+    title: string,
+    setup: ExportRequest["pageSetup"]
+): LaidOut {
     if (layout.pages.length < 2 || title.length === 0) return layout;
     const headerFont = font(false, false, false, setup.fontFamily);
     const headerSize = 8;
@@ -119,12 +120,15 @@ function addRunningBookHeaders(layout: LaidOut, title: string, setup: ExportRequ
         pages: layout.pages.map((operations, index) =>
             index === 0 ? operations : [...operations, header]
         ),
-        fonts: layout.fonts.some((existing) =>
-            existing.family === headerFont.family &&
-            existing.bold === headerFont.bold &&
-            existing.italic === headerFont.italic &&
-            existing.mono === headerFont.mono
-        ) ? layout.fonts : [...layout.fonts, headerFont]
+        fonts: layout.fonts.some(
+            (existing) =>
+                existing.family === headerFont.family &&
+                existing.bold === headerFont.bold &&
+                existing.italic === headerFont.italic &&
+                existing.mono === headerFont.mono
+        )
+            ? layout.fonts
+            : [...layout.fonts, headerFont]
     };
 }
 

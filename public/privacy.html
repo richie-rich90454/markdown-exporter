@@ -78,9 +78,10 @@
 
             <h2>What leaves your browser</h2>
             <p>
-                Nothing you type or paste in the editor is ever sent anywhere. The document is
-                converted to a PDF by your browser, on your device. There is no server that receives
-                your Markdown, because there is no server.
+                The app does not upload your writing, imported files, recovery drafts, book
+                projects, or generated exports. It has no account, upload endpoint, analytics, or
+                telemetry. The production security policy limits app resource requests to this site.
+                A link you choose to open can still navigate to its destination.
             </p>
 
             <h2>What is stored</h2>
@@ -88,8 +89,11 @@
                 The editor keeps an automatic recovery draft on your device using IndexedDB, with
                 local storage as a browser-compatibility fallback. The draft stays in this browser
                 until it is replaced by a newer draft or you clear this site's browser data. Opening
-                or saving a file uses the local file or download APIs provided by your browser. Page
-                setup choices stay in memory and are forgotten when you close the tab.
+                or saving a file uses the local file or download APIs provided by your browser. For
+                offline startup, the browser may cache the app page, its static scripts and styles,
+                and their local fonts. That cache does not include Markdown documents, recovery
+                drafts, imported books, or exported files. Page setup choices stay in memory and are
+                forgotten when you close the tab.
             </p>
 
             <h2>Accounts, uploads, payment</h2>

@@ -31,6 +31,8 @@ pnpm dev
 
 The app has no account, upload service, or telemetry. It uses local file-picker and folder APIs only after the author selects them. Browsers without folder access can open files through a picker and save through downloads. The production build removes analytics injection and external analytics permissions.
 
+The app's offline cache boundaries and static resource policy are described in [static delivery and privacy](docs/static-delivery.md).
+
 ## Validation
 
 ```sh
@@ -38,9 +40,10 @@ pnpm typecheck
 pnpm test
 pnpm test:e2e
 pnpm test:e2e:matrix
+pnpm test:perf
 pnpm build
 ```
 
-The default browser suite runs Chromium. `pnpm test:e2e:matrix` also runs Firefox and WebKit when their Playwright browsers are installed.
+The default browser suite runs Chromium. `pnpm test:e2e:matrix` also runs Firefox and WebKit when their Playwright browsers are installed. `pnpm test:perf` runs the opt-in 100,000-word manuscript responsiveness check in Chromium.
 
 MIT. Author richie-rich90454.

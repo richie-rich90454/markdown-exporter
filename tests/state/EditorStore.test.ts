@@ -20,11 +20,15 @@ describe("EditorStore shared history", () => {
     it("records CodeMirror patches without rescanning unchanged document text", () => {
         const store = new EditorStore();
         store.reset("A long existing paragraph");
-        store.update("A long existing paragraph!", {
-            from: "A long existing paragraph".length,
-            removed: "",
-            inserted: "!"
-        }, "typing");
+        store.update(
+            "A long existing paragraph!",
+            {
+                from: "A long existing paragraph".length,
+                removed: "",
+                inserted: "!"
+            },
+            "typing"
+        );
 
         expect(store.undo()).toBe(true);
         expect(store.current().source).toBe("A long existing paragraph");

@@ -5,14 +5,24 @@ describe("shared source-based editor history", () => {
     it("groups adjacent typing into one undo action and redoes it", () => {
         const history = new EditorHistory("");
 
-        expect(history.recordPatch({ from: 0, removed: "", inserted: "a" }, {
-            kind: "typing",
-            timestamp: 100
-        })).toBe(true);
-        expect(history.recordPatch({ from: 1, removed: "", inserted: "b" }, {
-            kind: "typing",
-            timestamp: 200
-        })).toBe(true);
+        expect(
+            history.recordPatch(
+                { from: 0, removed: "", inserted: "a" },
+                {
+                    kind: "typing",
+                    timestamp: 100
+                }
+            )
+        ).toBe(true);
+        expect(
+            history.recordPatch(
+                { from: 1, removed: "", inserted: "b" },
+                {
+                    kind: "typing",
+                    timestamp: 200
+                }
+            )
+        ).toBe(true);
         expect(history.current()).toBe("ab");
         expect(history.retainedSteps()).toBe(2);
 
@@ -24,14 +34,20 @@ describe("shared source-based editor history", () => {
 
     it("groups backward deletion and restores the deleted text in order", () => {
         const history = new EditorHistory("abc");
-        history.recordPatch({ from: 2, removed: "c", inserted: "" }, {
-            kind: "deletion",
-            timestamp: 10
-        });
-        history.recordPatch({ from: 1, removed: "b", inserted: "" }, {
-            kind: "deletion",
-            timestamp: 20
-        });
+        history.recordPatch(
+            { from: 2, removed: "c", inserted: "" },
+            {
+                kind: "deletion",
+                timestamp: 10
+            }
+        );
+        history.recordPatch(
+            { from: 1, removed: "b", inserted: "" },
+            {
+                kind: "deletion",
+                timestamp: 20
+            }
+        );
 
         expect(history.current()).toBe("a");
         expect(history.undo()).toBe("abc");
@@ -40,16 +56,22 @@ describe("shared source-based editor history", () => {
 
     it("starts a separate typing group after an editor mode switch", () => {
         const history = new EditorHistory("");
-        history.recordPatch({ from: 0, removed: "", inserted: "rich" }, {
-            kind: "typing",
-            timestamp: 100
-        });
+        history.recordPatch(
+            { from: 0, removed: "", inserted: "rich" },
+            {
+                kind: "typing",
+                timestamp: 100
+            }
+        );
 
         history.breakGroup();
-        history.recordPatch({ from: 4, removed: "", inserted: " source" }, {
-            kind: "typing",
-            timestamp: 101
-        });
+        history.recordPatch(
+            { from: 4, removed: "", inserted: " source" },
+            {
+                kind: "typing",
+                timestamp: 101
+            }
+        );
 
         expect(history.undo()).toBe("rich");
         expect(history.undo()).toBe("");
@@ -59,10 +81,15 @@ describe("shared source-based editor history", () => {
 
     it("applies and reverses a replacement patch", () => {
         const history = new EditorHistory("alpha");
-        expect(history.recordPatch({ from: 0, removed: "alpha", inserted: "beta" }, {
-            kind: "format",
-            timestamp: 1
-        })).toBe(true);
+        expect(
+            history.recordPatch(
+                { from: 0, removed: "alpha", inserted: "beta" },
+                {
+                    kind: "format",
+                    timestamp: 1
+                }
+            )
+        ).toBe(true);
 
         expect(history.undo()).toBe("alpha");
         expect(history.redo()).toBe("beta");
@@ -70,18 +97,27 @@ describe("shared source-based editor history", () => {
 
     it("places external manuscript actions between earlier and later source edits", () => {
         const history = new EditorHistory("A source");
-        history.recordPatch({ from: 8, removed: "", inserted: "!" }, {
-            kind: "typing",
-            timestamp: 100
-        });
+        history.recordPatch(
+            { from: 8, removed: "", inserted: "!" },
+            {
+                kind: "typing",
+                timestamp: 100
+            }
+        );
         history.recordExternalTransition("manuscript-replace-1", "A replacement!");
-        history.recordPatch({ from: 14, removed: "", inserted: "?" }, {
-            kind: "typing",
-            timestamp: 101
-        });
+        history.recordPatch(
+            { from: 14, removed: "", inserted: "?" },
+            {
+                kind: "typing",
+                timestamp: 101
+            }
+        );
 
         expect(history.undoStep()).toEqual({ type: "source", source: "A replacement!" });
-        expect(history.nextUndoStep()).toEqual({ type: "external", actionId: "manuscript-replace-1" });
+        expect(history.nextUndoStep()).toEqual({
+            type: "external",
+            actionId: "manuscript-replace-1"
+        });
         expect(history.undoStep()).toEqual({
             type: "external",
             actionId: "manuscript-replace-1",
@@ -90,7 +126,10 @@ describe("shared source-based editor history", () => {
         expect(history.undo()).toBe("A source");
 
         expect(history.redoStep()).toEqual({ type: "source", source: "A source!" });
-        expect(history.nextRedoStep()).toEqual({ type: "external", actionId: "manuscript-replace-1" });
+        expect(history.nextRedoStep()).toEqual({
+            type: "external",
+            actionId: "manuscript-replace-1"
+        });
         expect(history.redoStep()).toEqual({
             type: "external",
             actionId: "manuscript-replace-1",
@@ -101,12 +140,21 @@ describe("shared source-based editor history", () => {
 
     it("keeps external actions as grouping boundaries even when the active chapter is unchanged", () => {
         const history = new EditorHistory("");
-        history.recordPatch({ from: 0, removed: "", inserted: "a" }, { kind: "typing", timestamp: 1 });
+        history.recordPatch(
+            { from: 0, removed: "", inserted: "a" },
+            { kind: "typing", timestamp: 1 }
+        );
         history.recordExternalTransition("other-chapters-only", "a");
-        history.recordPatch({ from: 1, removed: "", inserted: "b" }, { kind: "typing", timestamp: 2 });
+        history.recordPatch(
+            { from: 1, removed: "", inserted: "b" },
+            { kind: "typing", timestamp: 2 }
+        );
 
         expect(history.undo()).toBe("a");
-        expect(history.nextUndoStep()).toEqual({ type: "external", actionId: "other-chapters-only" });
+        expect(history.nextUndoStep()).toEqual({
+            type: "external",
+            actionId: "other-chapters-only"
+        });
         expect(history.undoStep()).toEqual({
             type: "external",
             actionId: "other-chapters-only",
@@ -118,7 +166,11 @@ describe("shared source-based editor history", () => {
     it("invalidates an undone external action when a new source edit is recorded", () => {
         const history = new EditorHistory("before");
         history.recordExternalTransition("replace-all-2", "after");
-        expect(history.undoStep()).toMatchObject({ type: "external", actionId: "replace-all-2", source: "before" });
+        expect(history.undoStep()).toMatchObject({
+            type: "external",
+            actionId: "replace-all-2",
+            source: "before"
+        });
         expect(history.canRedo()).toBe(true);
 
         history.recordPatch({ from: 6, removed: "", inserted: "!" }, { kind: "paste" });
@@ -195,7 +247,9 @@ describe("shared source-based editor history", () => {
         const history = new EditorHistory("start", { maxBytes: 32 });
         const largeText = "x".repeat(40);
 
-        expect(history.recordPatch({ from: 5, removed: "", inserted: largeText }, { kind: "paste" })).toBe(false);
+        expect(
+            history.recordPatch({ from: 5, removed: "", inserted: largeText }, { kind: "paste" })
+        ).toBe(false);
         expect(history.current()).toBe(`start${largeText}`);
         expect(history.canUndo()).toBe(false);
         expect(history.retainedBytes()).toBe(0);

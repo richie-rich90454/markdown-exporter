@@ -11,7 +11,8 @@ export async function addCitationReferences(
 ): Promise<void> {
     const manifest = project?.manifest;
     const bibliographyPath = manifest?.bibliographyPath;
-    const bibliography = bibliographyPath === undefined ? undefined : project?.files[bibliographyPath];
+    const bibliography =
+        bibliographyPath === undefined ? undefined : project?.files[bibliographyPath];
     if (typeof bibliography !== "string") return;
     if (!sections.some((section) => section.content.textContent?.includes("[@"))) return;
 
@@ -22,7 +23,7 @@ export async function addCitationReferences(
             import("@citation-js/plugin-csl")
         ]);
         const stylePath = manifest?.citationStylePath;
-        let style = "apa";
+        let style: string = manifest?.citationStyleId ?? "apa";
         if (stylePath !== undefined) {
             const styleSource = project?.files[stylePath];
             if (typeof styleSource === "string") {
@@ -61,7 +62,9 @@ export async function addCitationReferences(
         const wrapper = document.createElement("section");
         wrapper.className = "generated-references";
         if (cited.size > 0) {
-            const generated = new Cite(references.data.filter((entry) => cited.has(String(entry.id))));
+            const generated = new Cite(
+                references.data.filter((entry) => cited.has(String(entry.id)))
+            );
             const html = generated.format("bibliography", {
                 style,
                 lang: manifest?.metadata.language || "en-US",
@@ -85,7 +88,8 @@ export async function addCitationReferences(
         const heading = document.createElement("h1");
         heading.textContent = "References could not be generated";
         const message = document.createElement("p");
-        message.textContent = error instanceof Error ? error.message : "The local bibliography could not be read.";
+        message.textContent =
+            error instanceof Error ? error.message : "The local bibliography could not be read.";
         diagnostic.append(heading, message);
         sections.push({ entry: undefined, title: "References", anchorId: "", content: diagnostic });
     }
@@ -103,7 +107,15 @@ export function sanitizeCitationHtml(source: string): DocumentFragment {
 }
 
 const citationTags = new Set(["DIV", "P", "SPAN", "I", "EM", "B", "STRONG", "A", "SUP", "SUB"]);
-const citationDangerousTags = new Set(["SCRIPT", "STYLE", "IFRAME", "OBJECT", "EMBED", "SVG", "MATH"]);
+const citationDangerousTags = new Set([
+    "SCRIPT",
+    "STYLE",
+    "IFRAME",
+    "OBJECT",
+    "EMBED",
+    "SVG",
+    "MATH"
+]);
 
 function sanitizeCitationNode(node: Node): Node | undefined {
     if (node.nodeType === Node.TEXT_NODE) return document.createTextNode(node.textContent ?? "");

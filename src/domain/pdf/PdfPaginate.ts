@@ -800,13 +800,13 @@ function placeTable(
             for (const [index, line] of lines.entries()) {
                 if (index > 0) y -= line.height;
                 const innerWidth = Math.max(0, width - 2 * CELL_PAD);
-                const lineWidth = line.pieces.reduce((total, piece) => total + pieceWidth(piece), 0);
+                const lineWidth = line.pieces.reduce(
+                    (total, piece) => total + pieceWidth(piece),
+                    0
+                );
                 const freeSpace = Math.max(0, innerWidth - lineWidth);
-                const alignmentOffset = alignment === "right"
-                    ? freeSpace
-                    : alignment === "center"
-                        ? freeSpace / 2
-                        : 0;
+                const alignmentOffset =
+                    alignment === "right" ? freeSpace : alignment === "center" ? freeSpace / 2 : 0;
                 drawLine(line, x + CELL_PAD + alignmentOffset, y, cursor);
             }
             if (column > 0) {

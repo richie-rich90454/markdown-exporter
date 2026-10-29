@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { CONFORMANCE_MARKDOWN } from "../tests/fixtures/markdownConformance";
 
 test("opens in rich mode and edits Markdown through ProseMirror", async ({ page }) => {
     await page.goto("/");
@@ -14,13 +15,45 @@ test("opens in rich mode and edits Markdown through ProseMirror", async ({ page 
     await editor.press("Control+a");
     await page.getByRole("button", { name: "Bold" }).click();
     await expect(editor.locator("strong")).toHaveText("A sentence for the manuscript.");
-    await expect(page.locator(".preview__flow strong")).toHaveText("A sentence for the manuscript.");
+    await expect(page.locator(".preview__flow strong")).toHaveText(
+        "A sentence for the manuscript."
+    );
 
     await editor.press("Control+z");
     await expect(editor.locator("strong")).toHaveCount(0);
 });
 
-test("keeps opaque author syntax when a supported paragraph is edited in rich mode", async ({ page }) => {
+test("runs the shared Markdown corpus through source mode, rich mode, and preview", async ({
+    page
+}) => {
+    test.setTimeout(30_000);
+    await page.goto("/");
+    await page.getByRole("button", { name: "Source", exact: true }).click();
+    const sourceEditor = page.getByLabel("Markdown editor");
+    await sourceEditor.fill(CONFORMANCE_MARKDOWN);
+
+    const preview = page.locator(".preview__flow");
+    await expect(preview.locator("h1")).toHaveText("Corpus chapter");
+    await expect(preview.locator("mark")).toContainText("highlighted");
+    await expect(preview.locator(".katex")).not.toHaveCount(0);
+    await expect(preview.locator(".markdown-diagram")).toHaveCount(1);
+    await expect(preview.locator(".diagram-error code")).toContainText("not a valid diagram");
+    await expect(preview).toContainText("Corpus footnote detail.");
+    await expect(preview.locator("script")).toHaveCount(0);
+    await expect(preview).toContainText("Content after malformed blocks remains visible.");
+
+    await page.getByRole("button", { name: "Rich", exact: true }).click();
+    await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+    await page.getByRole("button", { name: "Source", exact: true }).click();
+    await expect(sourceEditor).toContainText("title: Excluded chapter metadata");
+    await expect(sourceEditor).toContainText("\\eqref{eq:corpus}");
+    await expect(sourceEditor).toContainText("[^corpus]: Corpus footnote detail.");
+    await expect(sourceEditor).toContainText("not a valid diagram !!!");
+});
+
+test("keeps opaque author syntax when a supported paragraph is edited in rich mode", async ({
+    page
+}) => {
     await page.goto("/");
     await page.getByRole("button", { name: "Source", exact: true }).click();
     const source = [
@@ -54,7 +87,9 @@ test("keeps opaque author syntax when a supported paragraph is edited in rich mo
     await expect(sourceEditor).toContainText("Added in rich mode.");
 });
 
-test("preserves unsupported inline Markdown when neighboring rich text changes", async ({ page }) => {
+test("preserves unsupported inline Markdown when neighboring rich text changes", async ({
+    page
+}) => {
     await page.goto("/");
     await page.getByRole("button", { name: "Source", exact: true }).click();
     const sourceEditor = page.getByLabel("Markdown editor");
@@ -77,9 +112,9 @@ test("preserves unsupported inline Markdown when neighboring rich text changes",
 test("retains unsupported inline syntax when a paragraph is wholly rewritten", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: "Source", exact: true }).click();
-    await page.getByLabel("Markdown editor").fill(
-        "Original prose [[private-page]] with no stable words."
-    );
+    await page
+        .getByLabel("Markdown editor")
+        .fill("Original prose [[private-page]] with no stable words.");
     await page.getByRole("button", { name: "Rich", exact: true }).click();
 
     const richEditor = page.getByRole("textbox", { name: "Markdown editor" });
@@ -95,20 +130,22 @@ test("saves preserved Markdown syntax directly from rich mode", async ({ page })
     await page.goto("/");
     await page.getByRole("button", { name: "Source", exact: true }).click();
     const sourceEditor = page.getByLabel("Markdown editor");
-    await sourceEditor.fill([
-        "---",
-        "title: A manuscript",
-        "---",
-        "# Chapter one",
-        "",
-        "A sentence with a footnote.[^source]",
-        "",
-        "[^source]: Keep this reference attached.",
-        "",
-        "::: warning",
-        "Keep this author callout.",
-        ":::"
-    ].join("\n"));
+    await sourceEditor.fill(
+        [
+            "---",
+            "title: A manuscript",
+            "---",
+            "# Chapter one",
+            "",
+            "A sentence with a footnote.[^source]",
+            "",
+            "[^source]: Keep this reference attached.",
+            "",
+            "::: warning",
+            "Keep this author callout.",
+            ":::"
+        ].join("\n")
+    );
     await page.getByRole("button", { name: "Rich", exact: true }).click();
     const richEditor = page.getByRole("textbox", { name: "Markdown editor" });
     await richEditor.press("Control+End");

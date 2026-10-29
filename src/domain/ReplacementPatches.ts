@@ -34,11 +34,13 @@ export function applyReplacementPatches(
         // Undo offsets refer to the changed source. Translate them in one forward pass,
         // then apply right to left so changing lengths cannot move pending ranges.
         let delta = 0;
-        ordered = patches.map((patch) => {
-            const adjusted = { ...patch, from: patch.from + delta };
-            delta += patch.inserted.length - patch.removed.length;
-            return adjusted;
-        }).reverse();
+        ordered = patches
+            .map((patch) => {
+                const adjusted = { ...patch, from: patch.from + delta };
+                delta += patch.inserted.length - patch.removed.length;
+                return adjusted;
+            })
+            .reverse();
     }
     for (const patch of ordered) {
         const expected = redo ? patch.removed : patch.inserted;
@@ -48,7 +50,8 @@ export function applyReplacementPatches(
             patch.from < 0 ||
             patch.from + expected.length > result.length ||
             result.slice(patch.from, patch.from + expected.length) !== expected
-        ) return undefined;
+        )
+            return undefined;
         result = result.slice(0, patch.from) + value + result.slice(patch.from + expected.length);
     }
     return result;

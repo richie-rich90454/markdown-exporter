@@ -70,13 +70,17 @@ describe("BookArchive", () => {
             writable: true
         });
 
-        await expect(encodeBookArchive({ ...base, files })).rejects.toThrow(/cannot be represented safely/i);
+        await expect(encodeBookArchive({ ...base, files })).rejects.toThrow(
+            /cannot be represented safely/i
+        );
     });
 
     it("enforces the manifest size limit when creating a package", async () => {
         const project = createSingleChapterBook("# Opening", "B".repeat(1024 * 1024));
 
-        await expect(encodeBookArchive(project)).rejects.toThrow(/manifest exceeds the 1 MiB limit/i);
+        await expect(encodeBookArchive(project)).rejects.toThrow(
+            /manifest exceeds the 1 MiB limit/i
+        );
     });
 
     it("enforces the package entry limit when creating a package", async () => {
@@ -91,10 +95,9 @@ describe("BookArchive", () => {
 
     it("rejects an archive that declares a file larger than the expanded file limit", async () => {
         const project = createSingleChapterBook("# Opening", "Book");
-        const archive = setExpandedSizes(
-            await encodeBookArchive(project),
-            { "chapters/chapter-1.md": 64 * 1024 * 1024 + 1 }
-        );
+        const archive = setExpandedSizes(await encodeBookArchive(project), {
+            "chapters/chapter-1.md": 64 * 1024 * 1024 + 1
+        });
 
         await expect(decodeBookArchive(archive)).rejects.toThrow(/exceeds the 64 MiB file limit/i);
     });
@@ -120,7 +123,9 @@ describe("BookArchive", () => {
             "assets/four.bin": expanded
         });
 
-        await expect(decodeBookArchive(archive)).rejects.toThrow(/expanded book package exceeds the 256 MiB limit/i);
+        await expect(decodeBookArchive(archive)).rejects.toThrow(
+            /expanded book package exceeds the 256 MiB limit/i
+        );
     });
 
     it("rejects filesystem-equivalent archive names before extracting them", async () => {
@@ -140,11 +145,16 @@ describe("BookArchive", () => {
         // The first local record is book.json, whose name begins after the 30-byte fixed header.
         archive[30] = "B".charCodeAt(0);
 
-        await expect(decodeBookArchive(archive)).rejects.toThrow(/mismatched local and central paths/i);
+        await expect(decodeBookArchive(archive)).rejects.toThrow(
+            /mismatched local and central paths/i
+        );
     });
 });
 
-function setExpandedSizes(archive: Uint8Array, sizes: Readonly<Record<string, number>>): Uint8Array {
+function setExpandedSizes(
+    archive: Uint8Array,
+    sizes: Readonly<Record<string, number>>
+): Uint8Array {
     const view = new DataView(archive.buffer, archive.byteOffset, archive.byteLength);
     const endOffset = archive.length - 22;
     const centralOffset = view.getUint32(endOffset + 16, true);

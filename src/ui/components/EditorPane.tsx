@@ -1,8 +1,30 @@
-import type { Compartment as CodeMirrorCompartment, EditorState as CodeMirrorEditorState, StateEffect as CodeMirrorStateEffect, StateField as CodeMirrorStateField, Extension, Range } from "@codemirror/state";
+import type {
+    Compartment as CodeMirrorCompartment,
+    EditorState as CodeMirrorEditorState,
+    StateEffect as CodeMirrorStateEffect,
+    StateField as CodeMirrorStateField,
+    Extension,
+    Range
+} from "@codemirror/state";
 import type { HighlightStyle as CodeMirrorHighlightStyle } from "@codemirror/language";
-import type { Decoration as CodeMirrorDecoration, DecorationSet, EditorView as CodeMirrorEditorView, ViewUpdate, WidgetType as CodeMirrorWidgetType } from "@codemirror/view";
+import type {
+    Decoration as CodeMirrorDecoration,
+    DecorationSet,
+    EditorView as CodeMirrorEditorView,
+    ViewUpdate,
+    WidgetType as CodeMirrorWidgetType
+} from "@codemirror/view";
 import type katex from "katex";
-import { For, Show, createEffect, createMemo, createSignal, lazy, onCleanup, onMount } from "solid-js";
+import {
+    For,
+    Show,
+    createEffect,
+    createMemo,
+    createSignal,
+    lazy,
+    onCleanup,
+    onMount
+} from "solid-js";
 
 import type { ApplicationContext } from "../../ApplicationContext";
 import type { BookProject } from "../../domain/BookProject";
@@ -22,16 +44,14 @@ type EditorMode = "source" | "inline" | "rich";
 type KatexApi = typeof katex;
 
 const RichMarkdownEditor = lazy(() =>
-    import("./RichMarkdownEditor").then(({ RichMarkdownEditor: component }) => ({ default: component }))
+    import("./RichMarkdownEditor").then(({ RichMarkdownEditor: component }) => ({
+        default: component
+    }))
 );
 
 export interface EditorPaneProps {
     context: ApplicationContext;
-    onInput: (
-        value: string,
-        patch?: EditorHistoryPatch,
-        kind?: EditorHistoryChangeKind
-    ) => void;
+    onInput: (value: string, patch?: EditorHistoryPatch, kind?: EditorHistoryChangeKind) => void;
     onHistoryStep: () => void;
     editorRef: (focus: (() => void) | undefined) => void;
 }
@@ -100,14 +120,16 @@ function createInlineCodeMirrorExtensions(runtime: CodeMirrorRuntime): InlineCod
                     update.transactions.some((transaction) =>
                         transaction.effects.some((effect) => effect.is(setMathDecorations))
                     )
-                ) return;
+                )
+                    return;
                 if (
                     update.docChanged ||
                     update.viewportChanged ||
                     update.transactions.some((transaction) =>
                         transaction.effects.some((effect) => effect.is(refreshInlineDecorations))
                     )
-                ) this.decorations = inlineDecorations(update.view);
+                )
+                    this.decorations = inlineDecorations(update.view);
             }
         },
         { decorations: (plugin) => plugin.decorations }
@@ -127,7 +149,8 @@ function createInlineCodeMirrorExtensions(runtime: CodeMirrorRuntime): InlineCod
                     update.transactions.some((transaction) =>
                         transaction.effects.some((effect) => effect.is(refreshMathDecorations))
                     )
-                ) this.schedule(update.view);
+                )
+                    this.schedule(update.view);
             }
 
             private schedule(view: CodeMirrorEditorView): void {
@@ -144,7 +167,8 @@ function createInlineCodeMirrorExtensions(runtime: CodeMirrorRuntime): InlineCod
                             0,
                             view.state.doc.length
                         )
-                    ) return;
+                    )
+                        return;
                     view.dispatch({ effects: setMathDecorations.of(next) });
                 });
             }
@@ -217,11 +241,15 @@ export function EditorPane(props: EditorPaneProps) {
     let richNavigate: ((heading: string) => void) | undefined;
     let e2eSourceHook: (() => string) | undefined;
     const [bookQuery, setBookQuery] = createSignal("");
-    const manuscriptSearchResults = createMemo(() => props.context.bookProjectStore.search(bookQuery()));
+    const manuscriptSearchResults = createMemo(() =>
+        props.context.bookProjectStore.search(bookQuery())
+    );
     const [replaceText, setReplaceText] = createSignal("");
     const [replaceWith, setReplaceWith] = createSignal("");
     const [distractionFree, setDistractionFree] = createSignal(false);
-    const [bookReplacements, setBookReplacements] = createSignal<ReadonlyMap<string, BookReplacementHistoryEntry>>(new Map());
+    const [bookReplacements, setBookReplacements] = createSignal<
+        ReadonlyMap<string, BookReplacementHistoryEntry>
+    >(new Map());
     const bookReplacementHistoryStep = createMemo(() => {
         const editorStore = props.context.editorStore;
         editorStore.current();
@@ -292,11 +320,19 @@ export function EditorPane(props: EditorPaneProps) {
         let initial = props.context.editorStore.current().source;
         if (initial.length === 0) {
             const recovered = await props.context.draftRecovery.load();
-            if (recovered !== null && (recovered.source.length > 0 || recovered.bookProject !== undefined)) {
+            if (
+                recovered !== null &&
+                (recovered.source.length > 0 || recovered.bookProject !== undefined)
+            ) {
                 if (recovered.bookProject !== undefined) {
-                    props.context.bookProjectStore.open(recovered.bookProject, recovered.activeEntryId);
+                    props.context.bookProjectStore.open(
+                        recovered.bookProject,
+                        recovered.activeEntryId
+                    );
                     setBookProjectOpen(true);
-                    const active = props.context.bookProjectStore.select(props.context.bookProjectStore.activeEntryId());
+                    const active = props.context.bookProjectStore.select(
+                        props.context.bookProjectStore.activeEntryId()
+                    );
                     initial = active.source;
                     setFileName(active.entry.path);
                     setFolderName(recovered.bookProject.manifest.metadata.title);
@@ -307,15 +343,19 @@ export function EditorPane(props: EditorPaneProps) {
                 }
                 props.context.editorStore.reset(initial);
                 props.onInput(initial);
-                setFileStatus(recovered.bookProject === undefined
-                    ? "Recovered a local draft from this device."
-                    : "Recovered the book project from this device.");
+                setFileStatus(
+                    recovered.bookProject === undefined
+                        ? "Recovered a local draft from this device."
+                        : "Recovered the book project from this device."
+                );
             }
         }
         if (destroyed || editorHost === undefined) return;
         e2eSourceHook = () => currentSource();
         if (import.meta.env.MODE === "e2e") {
-            (window as unknown as { __markdownEditorSource?: () => string }).__markdownEditorSource = e2eSourceHook;
+            (
+                window as unknown as { __markdownEditorSource?: () => string }
+            ).__markdownEditorSource = e2eSourceHook;
         }
         props.editorRef(() => {
             if (mode() === "rich") richFocus?.();
@@ -337,16 +377,24 @@ export function EditorPane(props: EditorPaneProps) {
         const currentStoreSource = props.context.editorStore.current().source;
         const latestSource = selectedMode === mode() ? currentStoreSource : source;
         view = new runtime.EditorView({
-            state: runtime.EditorState.create({ doc: latestSource, extensions: editorExtensions(selectedMode) }),
+            state: runtime.EditorState.create({
+                doc: latestSource,
+                extensions: editorExtensions(selectedMode)
+            }),
             parent: editorHost
         });
         setSourceEditorLoaded(true);
         if (import.meta.env.MODE === "e2e") {
             e2eSourceHook = () => view?.state.doc.toString() ?? "";
-            (window as unknown as { __markdownEditorSource?: () => string }).__markdownEditorSource = e2eSourceHook;
+            (
+                window as unknown as { __markdownEditorSource?: () => string }
+            ).__markdownEditorSource = e2eSourceHook;
         }
         view.contentDOM.id = selectedMode === "rich" ? "source-editor" : "editor";
-        view.contentDOM.setAttribute("aria-label", selectedMode === "rich" ? "Markdown source" : "Markdown editor");
+        view.contentDOM.setAttribute(
+            "aria-label",
+            selectedMode === "rich" ? "Markdown source" : "Markdown editor"
+        );
         view.contentDOM.setAttribute("spellcheck", "false");
         activeEditorViews.add(view);
         if (
@@ -395,7 +443,11 @@ export function EditorPane(props: EditorPaneProps) {
             runtime.EditorView.lineWrapping,
             inlineCompartment.of(
                 selectedMode === "inline"
-                    ? [extensions.inlineMathField, extensions.inlineMathPlugin, extensions.inlinePlugin]
+                    ? [
+                          extensions.inlineMathField,
+                          extensions.inlineMathPlugin,
+                          extensions.inlinePlugin
+                      ]
                     : []
             ),
             runtime.EditorView.updateListener.of((update) => {
@@ -415,7 +467,9 @@ export function EditorPane(props: EditorPaneProps) {
                     const patch = changes[0];
                     if (patch !== undefined) {
                         const paste = update.transactions.some((transaction) =>
-                            (transaction.annotation(runtime.Transaction.userEvent) ?? "").includes("paste")
+                            (transaction.annotation(runtime.Transaction.userEvent) ?? "").includes(
+                                "paste"
+                            )
                         );
                         const kind: EditorHistoryChangeKind = paste
                             ? "paste"
@@ -483,22 +537,35 @@ export function EditorPane(props: EditorPaneProps) {
         );
     }
 
-    async function preserveRecoveryAfterSaveFailure(source: string, operation: string, error: unknown): Promise<void> {
+    async function preserveRecoveryAfterSaveFailure(
+        source: string,
+        operation: string,
+        error: unknown
+    ): Promise<void> {
         if (recoveryTimer !== undefined) clearTimeout(recoveryTimer);
         recoveryTimer = undefined;
         try {
             await saveRecoveryNow(source);
-            setFileStatus(`${operation}: ${errorMessage(error)} A local recovery draft was saved on this device.`);
+            setFileStatus(
+                `${operation}: ${errorMessage(error)} A local recovery draft was saved on this device.`
+            );
         } catch (recoveryError) {
-            setFileStatus(`${operation}: ${errorMessage(error)} Recovery could not be saved: ${errorMessage(recoveryError)}`);
+            setFileStatus(
+                `${operation}: ${errorMessage(error)} Recovery could not be saved: ${errorMessage(recoveryError)}`
+            );
         }
     }
 
-    async function assertFileUnchanged(handle: LocalFileHandle, baseline: string | undefined): Promise<void> {
+    async function assertFileUnchanged(
+        handle: LocalFileHandle,
+        baseline: string | undefined
+    ): Promise<void> {
         if (baseline === undefined) return;
         const current = await (await handle.getFile()).text();
         if (current !== baseline) {
-            throw new Error("This file changed outside the editor. Reopen it before saving, or use Save as to keep both versions.");
+            throw new Error(
+                "This file changed outside the editor. Reopen it before saving, or use Save as to keep both versions."
+            );
         }
     }
 
@@ -510,12 +577,16 @@ export function EditorPane(props: EditorPaneProps) {
             current = await props.context.bookProjectFiles.readFolder(activeBookDirectoryHandle);
         } else if (activeBookHandle !== undefined) {
             const file = await activeBookHandle.getFile();
-            current = await props.context.bookProjectFiles.readArchive(new Uint8Array(await file.arrayBuffer()));
+            current = await props.context.bookProjectFiles.readArchive(
+                new Uint8Array(await file.arrayBuffer())
+            );
         } else {
             return;
         }
         if (current === null || !sameBookProject(current, baseline)) {
-            throw new Error("This book changed outside the editor. Reopen it before saving, or use Save book as to keep both versions.");
+            throw new Error(
+                "This book changed outside the editor. Reopen it before saving, or use Save book as to keep both versions."
+            );
         }
     }
 
@@ -536,7 +607,10 @@ export function EditorPane(props: EditorPaneProps) {
         scheduleRecovery(source);
         if (view !== undefined) {
             view.setState(
-                codeMirrorRuntime!.EditorState.create({ doc: source, extensions: editorExtensions(mode()) })
+                codeMirrorRuntime!.EditorState.create({
+                    doc: source,
+                    extensions: editorExtensions(mode())
+                })
             );
             view.focus();
             if (mode() === "inline" && containsMath(source)) void loadKatex(view);
@@ -548,14 +622,17 @@ export function EditorPane(props: EditorPaneProps) {
             const handle = await props.context.localDocuments.pickOpenFile();
             if (handle === undefined) {
                 if (openFileInput !== undefined) {
-                    openFileInput.accept = ".md,.markdown,.mdown,.mkd,.txt,text/markdown,text/plain";
+                    openFileInput.accept =
+                        ".md,.markdown,.mdown,.mkd,.txt,text/markdown,text/plain";
                 }
                 openFileInput?.click();
                 return;
             }
             const file = await handle.getFile();
             if (/\.mdbook$/i.test(file.name)) {
-                const project = await props.context.bookProjectFiles.readArchive(new Uint8Array(await file.arrayBuffer()));
+                const project = await props.context.bookProjectFiles.readArchive(
+                    new Uint8Array(await file.arrayBuffer())
+                );
                 openBookProject(project, file.name, handle);
                 setFileStatus(`Opened ${file.name}.`);
                 return;
@@ -580,11 +657,14 @@ export function EditorPane(props: EditorPaneProps) {
             }
             const file = await handle.getFile();
             if (!/\.mdbook$/i.test(file.name)) throw new Error("Choose a .mdbook project archive.");
-            const project = await props.context.bookProjectFiles.readArchive(new Uint8Array(await file.arrayBuffer()));
+            const project = await props.context.bookProjectFiles.readArchive(
+                new Uint8Array(await file.arrayBuffer())
+            );
             openBookProject(project, file.name, handle);
             setFileStatus(`Opened ${file.name}.`);
         } catch (error) {
-            if (!isPickerCancellation(error)) setFileStatus(`Could not open the book: ${errorMessage(error)}`);
+            if (!isPickerCancellation(error))
+                setFileStatus(`Could not open the book: ${errorMessage(error)}`);
         }
     }
 
@@ -629,7 +709,10 @@ export function EditorPane(props: EditorPaneProps) {
                 props.context.bookProjectStore.updateActive(source);
                 const project = props.context.bookProjectStore.current();
                 await assertBookUnchanged();
-                await props.context.bookProjectFiles.writeFolder(activeBookDirectoryHandle, project);
+                await props.context.bookProjectFiles.writeFolder(
+                    activeBookDirectoryHandle,
+                    project
+                );
                 activeBookBaseline = cloneBookProject(project);
                 setFileStatus(`Saved the ${folderName()} book folder.`);
                 return;
@@ -646,8 +729,13 @@ export function EditorPane(props: EditorPaneProps) {
             }
             if (activeBookName !== undefined && /\.mdbook$/i.test(activeBookName)) {
                 props.context.bookProjectStore.updateActive(source);
-                const archive = await props.context.bookProjectFiles.writeArchive(props.context.bookProjectStore.current());
-                props.context.fileSaver.saveBlob(new Blob([archive as BlobPart], { type: "application/zip" }), activeBookName);
+                const archive = await props.context.bookProjectFiles.writeArchive(
+                    props.context.bookProjectStore.current()
+                );
+                props.context.fileSaver.saveBlob(
+                    new Blob([archive as BlobPart], { type: "application/zip" }),
+                    activeBookName
+                );
                 setFileStatus(`Downloaded ${activeBookName}.`);
                 return;
             }
@@ -659,12 +747,16 @@ export function EditorPane(props: EditorPaneProps) {
                 return;
             }
             if (activeDirectoryHandle !== undefined) {
-                const existing = await activeDirectoryHandle.getFileHandle(fileName()).catch((error: unknown) => {
-                    if (isNotFoundError(error)) return undefined;
-                    throw error;
-                });
+                const existing = await activeDirectoryHandle
+                    .getFileHandle(fileName())
+                    .catch((error: unknown) => {
+                        if (isNotFoundError(error)) return undefined;
+                        throw error;
+                    });
                 if (existing !== undefined) {
-                    throw new Error("A file with this name already exists in the selected folder. Use Save as to choose another file.");
+                    throw new Error(
+                        "A file with this name already exists in the selected folder. Use Save as to choose another file."
+                    );
                 }
                 const handle = await activeDirectoryHandle.getFileHandle(fileName(), {
                     create: true
@@ -741,7 +833,10 @@ export function EditorPane(props: EditorPaneProps) {
             const project = props.context.bookProjectStore.current();
             if (activeBookDirectoryHandle !== undefined) {
                 await assertBookUnchanged();
-                await props.context.bookProjectFiles.writeFolder(activeBookDirectoryHandle, project);
+                await props.context.bookProjectFiles.writeFolder(
+                    activeBookDirectoryHandle,
+                    project
+                );
                 activeBookBaseline = cloneBookProject(project);
                 props.context.bookProjectStore.markAsBookProject();
                 setBookProjectOpen(true);
@@ -792,11 +887,14 @@ export function EditorPane(props: EditorPaneProps) {
     }
 
     async function openFileFromList(entry: LocalFileEntry): Promise<void> {
-        const bookEntry = activeBookName !== undefined || activeBookHandle !== undefined || activeBookDirectoryHandle !== undefined
-            ? props.context.bookProjectStore.current().manifest.entries.find(
-            (candidate) => candidate.path === entry.path
-            )
-            : undefined;
+        const bookEntry =
+            activeBookName !== undefined ||
+            activeBookHandle !== undefined ||
+            activeBookDirectoryHandle !== undefined
+                ? props.context.bookProjectStore
+                      .current()
+                      .manifest.entries.find((candidate) => candidate.path === entry.path)
+                : undefined;
         if (bookEntry !== undefined) {
             try {
                 const selected = props.context.bookProjectStore.select(bookEntry.id);
@@ -830,7 +928,9 @@ export function EditorPane(props: EditorPaneProps) {
         if (/\.mdbook$/i.test(file.name)) {
             void file.arrayBuffer().then(async (buffer) => {
                 try {
-                    const project = await props.context.bookProjectFiles.readArchive(new Uint8Array(buffer));
+                    const project = await props.context.bookProjectFiles.readArchive(
+                        new Uint8Array(buffer)
+                    );
                     openBookProject(project, file.name);
                     setFileStatus(`Opened ${file.name}.`);
                 } catch (error) {
@@ -855,7 +955,9 @@ export function EditorPane(props: EditorPaneProps) {
             if (project !== null) {
                 const archiveName = `${slug(project.manifest.metadata.title)}.mdbook`;
                 openBookProject(project, archiveName);
-                setFileStatus(`Opened the ${project.manifest.metadata.title} book from the selected folder. Save book as creates a .mdbook copy.`);
+                setFileStatus(
+                    `Opened the ${project.manifest.metadata.title} book from the selected folder. Save book as creates a .mdbook copy.`
+                );
                 return;
             }
         } catch (error) {
@@ -893,10 +995,13 @@ export function EditorPane(props: EditorPaneProps) {
         fileHandle?: LocalFileHandle,
         directoryHandle?: LocalDirectoryHandle
     ): void {
-        const entry = project.manifest.entries.find((candidate) => candidate.role === "chapter") ?? project.manifest.entries[0];
+        const entry =
+            project.manifest.entries.find((candidate) => candidate.role === "chapter") ??
+            project.manifest.entries[0];
         if (entry === undefined) throw new Error("This book has no chapter or section to open.");
         const source = project.files[entry.path];
-        if (typeof source !== "string") throw new Error(`The Markdown file for “${entry.title}” is missing.`);
+        if (typeof source !== "string")
+            throw new Error(`The Markdown file for “${entry.title}” is missing.`);
         props.context.bookProjectStore.open(project, entry.id);
         setBookProjectOpen(true);
         setBookReplacements(new Map());
@@ -912,12 +1017,18 @@ export function EditorPane(props: EditorPaneProps) {
         scheduleRecovery(source);
         setFileName(entry.path);
         setFolderName(project.manifest.metadata.title);
-        setFolderFiles(project.manifest.entries.map((bookEntry) => ({
-            path: bookEntry.path,
-            file: new File([String(project.files[bookEntry.path] ?? "")], fileNameFromPath(bookEntry.path), {
-                type: "text/markdown"
-            })
-        })));
+        setFolderFiles(
+            project.manifest.entries.map((bookEntry) => ({
+                path: bookEntry.path,
+                file: new File(
+                    [String(project.files[bookEntry.path] ?? "")],
+                    fileNameFromPath(bookEntry.path),
+                    {
+                        type: "text/markdown"
+                    }
+                )
+            }))
+        );
         setFolderOpen(true);
     }
 
@@ -954,7 +1065,11 @@ export function EditorPane(props: EditorPaneProps) {
         view.dispatch({
             effects: inlineCompartment!.reconfigure(
                 next === "inline"
-                    ? [inlineExtensions!.inlineMathField, inlineExtensions!.inlineMathPlugin, inlineExtensions!.inlinePlugin]
+                    ? [
+                          inlineExtensions!.inlineMathField,
+                          inlineExtensions!.inlineMathPlugin,
+                          inlineExtensions!.inlinePlugin
+                      ]
                     : []
             )
         });
@@ -1002,24 +1117,32 @@ export function EditorPane(props: EditorPaneProps) {
             if (typeof source !== "string") {
                 props.context.bookProjectStore.updateActive(activeSource);
                 props.onHistoryStep();
-                setFileStatus("A section is unavailable, so the manuscript replacement could not be restored safely.");
+                setFileStatus(
+                    "A section is unavailable, so the manuscript replacement could not be restored safely."
+                );
                 return;
             }
             const restored = applyReplacementPatches(source, patches, applied);
             if (restored === undefined) {
                 props.context.bookProjectStore.updateActive(activeSource);
                 props.onHistoryStep();
-                setFileStatus("A section changed outside the undo history, so the manuscript replacement could not be restored safely.");
+                setFileStatus(
+                    "A section changed outside the undo history, so the manuscript replacement could not be restored safely."
+                );
                 return;
             }
             files[path] = restored;
         }
         const project = { ...currentProject, files };
-        const activeEntry = project.manifest.entries.find((entry) => entry.id === replacement.activeEntryId);
+        const activeEntry = project.manifest.entries.find(
+            (entry) => entry.id === replacement.activeEntryId
+        );
         if (activeEntry === undefined || files[activeEntry.path] !== activeSource) {
             props.context.bookProjectStore.updateActive(activeSource);
             props.onHistoryStep();
-            setFileStatus("The active section no longer matches the manuscript replacement history.");
+            setFileStatus(
+                "The active section no longer matches the manuscript replacement history."
+            );
             return;
         }
         props.context.bookProjectStore.open(project, replacement.activeEntryId);
@@ -1031,15 +1154,19 @@ export function EditorPane(props: EditorPaneProps) {
         });
         props.onHistoryStep();
         scheduleRecovery(activeSource);
-        setFileStatus(applied ? "Reapplied the manuscript replacement." : "Undid the manuscript replacement.");
+        setFileStatus(
+            applied ? "Reapplied the manuscript replacement." : "Undid the manuscript replacement."
+        );
     }
 
     function forgetUndoneBookReplacements(): void {
         const editorStore = props.context.editorStore;
         setBookReplacements((current) => {
-            const next = new Map([...current].filter(([actionId, entry]) =>
-                entry.applied && editorStore.hasExternalAction(actionId)
-            ));
+            const next = new Map(
+                [...current].filter(
+                    ([actionId, entry]) => entry.applied && editorStore.hasExternalAction(actionId)
+                )
+            );
             return next.size === current.size ? current : next;
         });
     }
@@ -1047,7 +1174,9 @@ export function EditorPane(props: EditorPaneProps) {
     function pruneExpiredBookReplacements(): void {
         const editorStore = props.context.editorStore;
         setBookReplacements((current) => {
-            const next = new Map([...current].filter(([actionId]) => editorStore.hasExternalAction(actionId)));
+            const next = new Map(
+                [...current].filter(([actionId]) => editorStore.hasExternalAction(actionId))
+            );
             return next.size === current.size ? current : next;
         });
     }
@@ -1065,10 +1194,25 @@ export function EditorPane(props: EditorPaneProps) {
             if (line !== undefined) {
                 requestAnimationFrame(() => {
                     const source = props.context.editorStore.current().source;
-                    const offset = source.split(/\r?\n/).slice(0, Math.max(0, line - 1)).join("\n").length + (line > 1 ? 1 : 0);
-                    if (mode() === "rich") richNavigate?.(line === undefined ? selected.entry.title : (selected.source.split(/\r?\n/)[line - 1] ?? selected.entry.title).trim());
+                    const offset =
+                        source
+                            .split(/\r?\n/)
+                            .slice(0, Math.max(0, line - 1))
+                            .join("\n").length + (line > 1 ? 1 : 0);
+                    if (mode() === "rich")
+                        richNavigate?.(
+                            line === undefined
+                                ? selected.entry.title
+                                : (
+                                      selected.source.split(/\r?\n/)[line - 1] ??
+                                      selected.entry.title
+                                  ).trim()
+                        );
                     else {
-                        view?.dispatch({ selection: { anchor: Math.min(offset, view.state.doc.length) }, scrollIntoView: true });
+                        view?.dispatch({
+                            selection: { anchor: Math.min(offset, view.state.doc.length) },
+                            scrollIntoView: true
+                        });
                         view?.focus();
                     }
                 });
@@ -1079,7 +1223,8 @@ export function EditorPane(props: EditorPaneProps) {
     }
 
     function addBookEntry(role: "chapter" | "front-matter" | "back-matter"): void {
-        const fallback = role === "chapter" ? "New chapter" : role === "front-matter" ? "Preface" : "References";
+        const fallback =
+            role === "chapter" ? "New chapter" : role === "front-matter" ? "Preface" : "References";
         const title = window.prompt("Section title", fallback);
         if (title === null) return;
         try {
@@ -1129,28 +1274,62 @@ export function EditorPane(props: EditorPaneProps) {
         scheduleRecovery(currentSource());
     }
 
-    async function importBookAsset(file: File | undefined, kind: "cover" | "bibliography" | "citation-style"): Promise<void> {
+    function updateBibliography(source: string): void {
+        props.context.bookProjectStore.updateBibliography(source);
+        scheduleRecovery(currentSource());
+    }
+
+    function selectCitationStyle(style: string): void {
+        if (style !== "apa" && style !== "harvard1" && style !== "vancouver") return;
+        props.context.bookProjectStore.setBuiltInCitationStyle(style);
+        scheduleRecovery(currentSource());
+    }
+
+    function selectedCitationStyle(): string {
+        const manifest = props.context.bookProjectStore.current().manifest;
+        return manifest.citationStylePath === undefined
+            ? (manifest.citationStyleId ?? "apa")
+            : "custom";
+    }
+
+    function bibliographySource(): string {
+        const project = props.context.bookProjectStore.current();
+        const path = project.manifest.bibliographyPath;
+        return path === undefined || typeof project.files[path] !== "string"
+            ? ""
+            : project.files[path];
+    }
+
+    async function importBookAsset(
+        file: File | undefined,
+        kind: "cover" | "bibliography" | "citation-style"
+    ): Promise<void> {
         if (file === undefined) return;
         const maxSize = kind === "cover" ? 20 * 1024 * 1024 : 2 * 1024 * 1024;
         if (file.size > maxSize) {
-            setFileStatus(`That file exceeds the ${Math.round(maxSize / (1024 * 1024))} MiB limit.`);
+            setFileStatus(
+                `That file exceeds the ${Math.round(maxSize / (1024 * 1024))} MiB limit.`
+            );
             return;
         }
         try {
             const store = props.context.bookProjectStore;
             if (kind === "cover") {
                 const extension = file.name.split(".").at(-1)?.toLowerCase() ?? "png";
-                if (!/^(?:png|jpe?g|gif|svg|webp|avif)$/.test(extension)) throw new Error("Choose a PNG, JPEG, GIF, SVG, WebP, or AVIF image.");
+                if (!/^(?:png|jpe?g|gif|svg|webp|avif)$/.test(extension))
+                    throw new Error("Choose a PNG, JPEG, GIF, SVG, WebP, or AVIF image.");
                 const path = `assets/cover.${extension}`;
                 store.putFile(path, new Uint8Array(await file.arrayBuffer()));
                 store.updateMetadata({ coverPath: path });
             } else if (kind === "bibliography") {
-                if (!file.name.toLowerCase().endsWith(".bib")) throw new Error("Choose a BibTeX .bib file.");
+                if (!file.name.toLowerCase().endsWith(".bib"))
+                    throw new Error("Choose a BibTeX .bib file.");
                 const path = "references/library.bib";
                 store.putFile(path, await file.text());
                 store.setBibliographyPath(path);
             } else {
-                if (!file.name.toLowerCase().endsWith(".csl")) throw new Error("Choose a CSL .csl style file.");
+                if (!file.name.toLowerCase().endsWith(".csl"))
+                    throw new Error("Choose a CSL .csl style file.");
                 const path = "styles/custom.csl";
                 store.putFile(path, await file.text());
                 store.setCitationStylePath(path);
@@ -1177,14 +1356,24 @@ export function EditorPane(props: EditorPaneProps) {
         for (const entry of before.manifest.entries) {
             const oldSource = before.files[entry.path];
             const newSource = after.files[entry.path];
-            if (typeof oldSource === "string" && typeof newSource === "string" && oldSource !== newSource) {
-                const patches = findReplacementPatches(oldSource, replaceText().trim(), replaceWith());
+            if (
+                typeof oldSource === "string" &&
+                typeof newSource === "string" &&
+                oldSource !== newSource
+            ) {
+                const patches = findReplacementPatches(
+                    oldSource,
+                    replaceText().trim(),
+                    replaceWith()
+                );
                 if (applyReplacementPatches(oldSource, patches, true) !== newSource) {
                     props.context.editorStore.reset(store.select(activeEntryId).source);
                     setBookReplacements(new Map());
                     props.onHistoryStep();
                     scheduleRecovery(newSource);
-                    setFileStatus("The text was replaced, but its undo record could not be created safely.");
+                    setFileStatus(
+                        "The text was replaced, but its undo record could not be created safely."
+                    );
                     return;
                 }
                 changes[entry.path] = patches;
@@ -1197,23 +1386,33 @@ export function EditorPane(props: EditorPaneProps) {
         const retainedPayloadBytes = replacementPayloadSize(changes);
         const active = store.select(activeEntryId);
         const actionId = `book-replace-${Date.now().toString(36)}-${(++bookReplacementSequence).toString(36)}`;
-        const recorded = props.context.editorStore.recordExternalTransition(actionId, active.source, retainedPayloadBytes);
+        const recorded = props.context.editorStore.recordExternalTransition(
+            actionId,
+            active.source,
+            retainedPayloadBytes
+        );
         if (!recorded) {
             setBookReplacements(new Map());
             props.onHistoryStep();
             scheduleRecovery(active.source);
-            setFileStatus(`Replaced ${count} occurrence${count === 1 ? "" : "s"}. This large replacement exceeds the undo history limit.`);
+            setFileStatus(
+                `Replaced ${count} occurrence${count === 1 ? "" : "s"}. This large replacement exceeds the undo history limit.`
+            );
             return;
         }
         const editorStore = props.context.editorStore;
-        const nextReplacements = new Map([...bookReplacements()].filter(([id, entry]) =>
-            entry.applied && editorStore.hasExternalAction(id)
-        ));
+        const nextReplacements = new Map(
+            [...bookReplacements()].filter(
+                ([id, entry]) => entry.applied && editorStore.hasExternalAction(id)
+            )
+        );
         nextReplacements.set(actionId, { actionId, activeEntryId, changes, applied: true });
         setBookReplacements(nextReplacements);
         props.onHistoryStep();
         scheduleRecovery(active.source);
-        setFileStatus(`Replaced ${count} occurrence${count === 1 ? "" : "s"} across the manuscript. Undo is available here and with Ctrl+Z.`);
+        setFileStatus(
+            `Replaced ${count} occurrence${count === 1 ? "" : "s"} across the manuscript. Undo is available here and with Ctrl+Z.`
+        );
     }
 
     function outlineItems(): { title: string; line: number; level: number }[] {
@@ -1224,13 +1423,17 @@ export function EditorPane(props: EditorPaneProps) {
             const marker = /^\s{0,3}(`{3,}|~{3,})/.exec(text)?.[1];
             if (marker !== undefined) {
                 if (fence === undefined) fence = { marker: marker[0] ?? "`", size: marker.length };
-                else if (marker[0] === fence.marker && marker.length >= fence.size) fence = undefined;
+                else if (marker[0] === fence.marker && marker.length >= fence.size)
+                    fence = undefined;
                 return;
             }
             if (fence !== undefined) return;
             const heading = /^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/.exec(text);
             if (heading?.[2] !== undefined) {
-                const title = heading[2].replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/[*_`~]/g, "").trim();
+                const title = heading[2]
+                    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+                    .replace(/[*_`~]/g, "")
+                    .trim();
                 items.push({ title, line: index + 1, level: heading[1]?.length ?? 1 });
             }
         });
@@ -1259,7 +1462,11 @@ export function EditorPane(props: EditorPaneProps) {
     }
 
     return (
-        <section class="pane pane--editor" classList={{ "pane--editor-focus": distractionFree() }} aria-label="Editor pane">
+        <section
+            class="pane pane--editor"
+            classList={{ "pane--editor-focus": distractionFree() }}
+            aria-label="Editor pane"
+        >
             <div class="editor-toolbar" role="toolbar" aria-label="Editor controls">
                 <div class="editor-toolbar__files">
                     <button
@@ -1320,7 +1527,9 @@ export function EditorPane(props: EditorPaneProps) {
                             type="button"
                             class="editor-mode"
                             aria-pressed={mode() === "rich"}
-                            onClick={() => { void selectMode("rich"); }}
+                            onClick={() => {
+                                void selectMode("rich");
+                            }}
                         >
                             Rich
                         </button>
@@ -1328,7 +1537,9 @@ export function EditorPane(props: EditorPaneProps) {
                             type="button"
                             class="editor-mode"
                             aria-pressed={mode() === "source"}
-                            onClick={() => { void selectMode("source"); }}
+                            onClick={() => {
+                                void selectMode("source");
+                            }}
                         >
                             Source
                         </button>
@@ -1336,7 +1547,9 @@ export function EditorPane(props: EditorPaneProps) {
                             type="button"
                             class="editor-mode"
                             aria-pressed={mode() === "inline"}
-                            onClick={() => { void selectMode("inline"); }}
+                            onClick={() => {
+                                void selectMode("inline");
+                            }}
                         >
                             Inline
                         </button>
@@ -1376,98 +1589,455 @@ export function EditorPane(props: EditorPaneProps) {
                             </button>
                         </div>
                         <Show when={bookProjectOpen()}>
-                        <div class="book-tools">
-                            <Show when={props.context.bookProjectStore.current().manifest.entries.length > 0}>
-                                <p class="book-tools__count">
-                                    <span>{wordCounts().section.toLocaleString()} words in this section</span>
-                                    <span aria-hidden="true"> · </span>
-                                    <span>{wordCounts().manuscript.toLocaleString()} words in the manuscript</span>
-                                </p>
-                            </Show>
-                            <div class="book-tools__actions">
-                                <button type="button" onClick={() => addBookEntry("chapter")}>Add chapter</button>
-                                <details class="book-tools__more">
-                                    <summary>More</summary>
-                                    <button type="button" onClick={() => addBookEntry("front-matter")}>Add front matter</button>
-                                    <button type="button" onClick={() => addBookEntry("back-matter")}>Add back matter</button>
-                                </details>
-                            </div>
-                            <nav class="book-tools__sections" aria-label="Book sections">
-                                <h3>Book sections</h3>
-                                <ol>
-                                    <For each={props.context.bookProjectStore.current().manifest.entries}>
-                                        {(entry, index) => (
-                                            <li classList={{ "is-current": props.context.bookProjectStore.activeEntryId() === entry.id }}>
-                                                <button type="button" class="book-tools__section" aria-current={props.context.bookProjectStore.activeEntryId() === entry.id ? "page" : undefined} onClick={() => activateBookEntry(entry.id)}>
-                                                    <span>{entry.title}</span>
-                                                    <small>{entry.role === "front-matter" ? "Front matter" : entry.role === "back-matter" ? "Back matter" : "Chapter"}</small>
-                                                </button>
-                                                <div class="book-tools__section-actions">
-                                                    <button type="button" aria-label={`Rename ${entry.title}`} title="Rename" onClick={() => renameBookEntry(entry.id, entry.title)}>Rename</button>
-                                                    <button type="button" aria-label={`Move ${entry.title} up`} title="Move up" disabled={index() === 0} onClick={() => moveBookEntry(entry.id, -1)}>↑</button>
-                                                    <button type="button" aria-label={`Move ${entry.title} down`} title="Move down" disabled={index() === props.context.bookProjectStore.current().manifest.entries.length - 1} onClick={() => moveBookEntry(entry.id, 1)}>↓</button>
-                                                    <button type="button" aria-label={`Delete ${entry.title}`} title="Delete" onClick={() => removeBookEntry(entry.id, entry.title)}>×</button>
-                                                </div>
-                                            </li>
-                                        )}
-                                    </For>
-                                </ol>
-                            </nav>
-                            <details class="book-tools__details">
-                                <summary>Book details</summary>
-                                <label>Title<input name="book-title" autocomplete="off" value={props.context.bookProjectStore.current().manifest.metadata.title} onInput={(event) => updateBookMetadata({ title: event.currentTarget.value })} /></label>
-                                <label>Subtitle<input name="book-subtitle" autocomplete="off" value={props.context.bookProjectStore.current().manifest.metadata.subtitle ?? ""} onInput={(event) => updateBookMetadata({ subtitle: event.currentTarget.value })} /></label>
-                                <label>Authors<input name="book-authors" autocomplete="off" value={props.context.bookProjectStore.current().manifest.metadata.authors.join(", ")} onInput={(event) => updateBookMetadata({ authors: event.currentTarget.value.split(",").map((author) => author.trim()).filter(Boolean) })} /></label>
-                                <label>Language<input name="book-language" autocomplete="off" value={props.context.bookProjectStore.current().manifest.metadata.language} onInput={(event) => updateBookMetadata({ language: event.currentTarget.value })} /></label>
-                                <label>Publisher<input name="book-publisher" autocomplete="off" value={props.context.bookProjectStore.current().manifest.metadata.publisher ?? ""} onInput={(event) => updateBookMetadata({ publisher: event.currentTarget.value })} /></label>
-                                <label>ISBN<input name="book-isbn" autocomplete="off" value={props.context.bookProjectStore.current().manifest.metadata.isbn ?? ""} onInput={(event) => updateBookMetadata({ isbn: event.currentTarget.value })} /></label>
-                                <label>Description<textarea name="book-description" autocomplete="off" value={props.context.bookProjectStore.current().manifest.metadata.description ?? ""} onInput={(event) => updateBookMetadata({ description: event.currentTarget.value })} /></label>
-                                <label>Cover<input name="book-cover" type="file" accept="image/png,image/jpeg,image/gif,image/svg+xml,image/webp,image/avif" onChange={(event) => { void importBookAsset(event.currentTarget.files?.[0], "cover"); event.currentTarget.value = ""; }} /></label>
-                                <label>BibTeX references<input name="book-bibliography" type="file" accept=".bib,text/plain" onChange={(event) => { void importBookAsset(event.currentTarget.files?.[0], "bibliography"); event.currentTarget.value = ""; }} /></label>
-                                <label>Citation style (CSL)<input name="book-citation-style" type="file" accept=".csl,application/xml,text/xml" onChange={(event) => { void importBookAsset(event.currentTarget.files?.[0], "citation-style"); event.currentTarget.value = ""; }} /></label>
-                            </details>
-                            <label class="book-tools__search">Find in manuscript<input name="manuscript-search" type="search" autocomplete="off" value={bookQuery()} onInput={(event) => setBookQuery(event.currentTarget.value)} placeholder="Search all sections…" /></label>
-                            <Show when={bookQuery().trim().length > 0}>
-                                <ul class="book-tools__matches">
-                                    <For each={manuscriptSearchResults().slice(0, 30)}>
-                                        {(match) => <li><button type="button" onClick={() => activateBookEntry(match.entryId, match.line)}><strong>{match.title}, line {match.line}</strong><span>{match.excerpt}</span></button></li>}
-                                    </For>
-                                </ul>
-                                <Show when={manuscriptSearchResults().length === 0}>
-                                    <p class="book-tools__empty">No matches in this manuscript.</p>
+                            <div class="book-tools">
+                                <Show
+                                    when={
+                                        props.context.bookProjectStore.current().manifest.entries
+                                            .length > 0
+                                    }
+                                >
+                                    <p class="book-tools__count">
+                                        <span>
+                                            {wordCounts().section.toLocaleString()} words in this
+                                            section
+                                        </span>
+                                        <span aria-hidden="true"> · </span>
+                                        <span>
+                                            {wordCounts().manuscript.toLocaleString()} words in the
+                                            manuscript
+                                        </span>
+                                    </p>
                                 </Show>
-                            </Show>
-                            <details class="book-tools__details">
-                                <summary>Replace across manuscript</summary>
-                                <label>Find<input name="manuscript-replace-find" autocomplete="off" value={replaceText()} onInput={(event) => setReplaceText(event.currentTarget.value)} /></label>
-                                <label>Replace with<input name="manuscript-replace-with" autocomplete="off" value={replaceWith()} onInput={(event) => setReplaceWith(event.currentTarget.value)} /></label>
-                                <button type="button" disabled={replaceText().length === 0} onClick={() => replaceAcrossBook()}>Replace all</button>
-                                <Show when={bookReplacementHistoryStep()}>
-                                    {(historyStep) => (
+                                <div class="book-tools__actions">
+                                    <button type="button" onClick={() => addBookEntry("chapter")}>
+                                        Add chapter
+                                    </button>
+                                    <details class="book-tools__more">
+                                        <summary>More</summary>
                                         <button
                                             type="button"
-                                            class="book-tools__replace-undo"
-                                            onClick={() => performHistoryStep(historyStep().redo)}
+                                            onClick={() => addBookEntry("front-matter")}
                                         >
-                                            {historyStep().redo ? "Redo replace all" : "Undo replace all"}
+                                            Add front matter
                                         </button>
-                                    )}
+                                        <button
+                                            type="button"
+                                            onClick={() => addBookEntry("back-matter")}
+                                        >
+                                            Add back matter
+                                        </button>
+                                    </details>
+                                </div>
+                                <nav class="book-tools__sections" aria-label="Book sections">
+                                    <h3>Book sections</h3>
+                                    <ol>
+                                        <For
+                                            each={
+                                                props.context.bookProjectStore.current().manifest
+                                                    .entries
+                                            }
+                                        >
+                                            {(entry, index) => (
+                                                <li
+                                                    classList={{
+                                                        "is-current":
+                                                            props.context.bookProjectStore.activeEntryId() ===
+                                                            entry.id
+                                                    }}
+                                                >
+                                                    <button
+                                                        type="button"
+                                                        class="book-tools__section"
+                                                        aria-current={
+                                                            props.context.bookProjectStore.activeEntryId() ===
+                                                            entry.id
+                                                                ? "page"
+                                                                : undefined
+                                                        }
+                                                        onClick={() => activateBookEntry(entry.id)}
+                                                    >
+                                                        <span>{entry.title}</span>
+                                                        <small>
+                                                            {entry.role === "front-matter"
+                                                                ? "Front matter"
+                                                                : entry.role === "back-matter"
+                                                                  ? "Back matter"
+                                                                  : "Chapter"}
+                                                        </small>
+                                                    </button>
+                                                    <div class="book-tools__section-actions">
+                                                        <button
+                                                            type="button"
+                                                            aria-label={`Rename ${entry.title}`}
+                                                            title="Rename"
+                                                            onClick={() =>
+                                                                renameBookEntry(
+                                                                    entry.id,
+                                                                    entry.title
+                                                                )
+                                                            }
+                                                        >
+                                                            Rename
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            aria-label={`Move ${entry.title} up`}
+                                                            title="Move up"
+                                                            disabled={index() === 0}
+                                                            onClick={() =>
+                                                                moveBookEntry(entry.id, -1)
+                                                            }
+                                                        >
+                                                            ↑
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            aria-label={`Move ${entry.title} down`}
+                                                            title="Move down"
+                                                            disabled={
+                                                                index() ===
+                                                                props.context.bookProjectStore.current()
+                                                                    .manifest.entries.length -
+                                                                    1
+                                                            }
+                                                            onClick={() =>
+                                                                moveBookEntry(entry.id, 1)
+                                                            }
+                                                        >
+                                                            ↓
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            aria-label={`Delete ${entry.title}`}
+                                                            title="Delete"
+                                                            onClick={() =>
+                                                                removeBookEntry(
+                                                                    entry.id,
+                                                                    entry.title
+                                                                )
+                                                            }
+                                                        >
+                                                            ×
+                                                        </button>
+                                                    </div>
+                                                </li>
+                                            )}
+                                        </For>
+                                    </ol>
+                                </nav>
+                                <details class="book-tools__details">
+                                    <summary>Book details</summary>
+                                    <label>
+                                        Title
+                                        <input
+                                            name="book-title"
+                                            autocomplete="off"
+                                            value={
+                                                props.context.bookProjectStore.current().manifest
+                                                    .metadata.title
+                                            }
+                                            onInput={(event) =>
+                                                updateBookMetadata({
+                                                    title: event.currentTarget.value
+                                                })
+                                            }
+                                        />
+                                    </label>
+                                    <label>
+                                        Subtitle
+                                        <input
+                                            name="book-subtitle"
+                                            autocomplete="off"
+                                            value={
+                                                props.context.bookProjectStore.current().manifest
+                                                    .metadata.subtitle ?? ""
+                                            }
+                                            onInput={(event) =>
+                                                updateBookMetadata({
+                                                    subtitle: event.currentTarget.value
+                                                })
+                                            }
+                                        />
+                                    </label>
+                                    <label>
+                                        Authors
+                                        <input
+                                            name="book-authors"
+                                            autocomplete="off"
+                                            value={props.context.bookProjectStore
+                                                .current()
+                                                .manifest.metadata.authors.join(", ")}
+                                            onInput={(event) =>
+                                                updateBookMetadata({
+                                                    authors: event.currentTarget.value
+                                                        .split(",")
+                                                        .map((author) => author.trim())
+                                                        .filter(Boolean)
+                                                })
+                                            }
+                                        />
+                                    </label>
+                                    <label>
+                                        Language
+                                        <input
+                                            name="book-language"
+                                            autocomplete="off"
+                                            value={
+                                                props.context.bookProjectStore.current().manifest
+                                                    .metadata.language
+                                            }
+                                            onInput={(event) =>
+                                                updateBookMetadata({
+                                                    language: event.currentTarget.value
+                                                })
+                                            }
+                                        />
+                                    </label>
+                                    <label>
+                                        Publisher
+                                        <input
+                                            name="book-publisher"
+                                            autocomplete="off"
+                                            value={
+                                                props.context.bookProjectStore.current().manifest
+                                                    .metadata.publisher ?? ""
+                                            }
+                                            onInput={(event) =>
+                                                updateBookMetadata({
+                                                    publisher: event.currentTarget.value
+                                                })
+                                            }
+                                        />
+                                    </label>
+                                    <label>
+                                        ISBN
+                                        <input
+                                            name="book-isbn"
+                                            autocomplete="off"
+                                            value={
+                                                props.context.bookProjectStore.current().manifest
+                                                    .metadata.isbn ?? ""
+                                            }
+                                            onInput={(event) =>
+                                                updateBookMetadata({
+                                                    isbn: event.currentTarget.value
+                                                })
+                                            }
+                                        />
+                                    </label>
+                                    <label>
+                                        Description
+                                        <textarea
+                                            name="book-description"
+                                            autocomplete="off"
+                                            value={
+                                                props.context.bookProjectStore.current().manifest
+                                                    .metadata.description ?? ""
+                                            }
+                                            onInput={(event) =>
+                                                updateBookMetadata({
+                                                    description: event.currentTarget.value
+                                                })
+                                            }
+                                        />
+                                    </label>
+                                    <label>
+                                        Cover
+                                        <input
+                                            name="book-cover"
+                                            type="file"
+                                            accept="image/png,image/jpeg,image/gif,image/svg+xml,image/webp,image/avif"
+                                            onChange={(event) => {
+                                                void importBookAsset(
+                                                    event.currentTarget.files?.[0],
+                                                    "cover"
+                                                );
+                                                event.currentTarget.value = "";
+                                            }}
+                                        />
+                                    </label>
+                                    <label>
+                                        Bibliography (BibTeX)
+                                        <textarea
+                                            name="book-bibliography-editor"
+                                            spellcheck="false"
+                                            value={bibliographySource()}
+                                            onInput={(event) =>
+                                                updateBibliography(event.currentTarget.value)
+                                            }
+                                            placeholder="@book{key, author={Author}, title={Title}, year={2026}}"
+                                        />
+                                    </label>
+                                    <label>
+                                        Reference style
+                                        <select
+                                            name="book-citation-style-choice"
+                                            value={selectedCitationStyle()}
+                                            onChange={(event) =>
+                                                selectCitationStyle(event.currentTarget.value)
+                                            }
+                                        >
+                                            <option value="apa">APA 7</option>
+                                            <option value="harvard1">Harvard</option>
+                                            <option value="vancouver">Vancouver</option>
+                                            <Show
+                                                when={
+                                                    props.context.bookProjectStore.current()
+                                                        .manifest.citationStylePath !== undefined
+                                                }
+                                            >
+                                                <option value="custom">Custom CSL</option>
+                                            </Show>
+                                        </select>
+                                    </label>
+                                    <label>
+                                        Import custom CSL style
+                                        <input
+                                            name="book-citation-style-file"
+                                            type="file"
+                                            accept=".csl,application/xml,text/xml"
+                                            onChange={(event) => {
+                                                void importBookAsset(
+                                                    event.currentTarget.files?.[0],
+                                                    "citation-style"
+                                                );
+                                                event.currentTarget.value = "";
+                                            }}
+                                        />
+                                    </label>
+                                </details>
+                                <label class="book-tools__search">
+                                    Find in manuscript
+                                    <input
+                                        name="manuscript-search"
+                                        type="search"
+                                        autocomplete="off"
+                                        value={bookQuery()}
+                                        onInput={(event) => setBookQuery(event.currentTarget.value)}
+                                        placeholder="Search all sections…"
+                                    />
+                                </label>
+                                <Show when={bookQuery().trim().length > 0}>
+                                    <ul class="book-tools__matches">
+                                        <For each={manuscriptSearchResults().slice(0, 30)}>
+                                            {(match) => (
+                                                <li>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                            activateBookEntry(
+                                                                match.entryId,
+                                                                match.line
+                                                            )
+                                                        }
+                                                    >
+                                                        <strong>
+                                                            {match.title}, line {match.line}
+                                                        </strong>
+                                                        <span>{match.excerpt}</span>
+                                                    </button>
+                                                </li>
+                                            )}
+                                        </For>
+                                    </ul>
+                                    <Show when={manuscriptSearchResults().length === 0}>
+                                        <p class="book-tools__empty">
+                                            No matches in this manuscript.
+                                        </p>
+                                    </Show>
                                 </Show>
-                            </details>
-                            <nav class="book-tools__outline" aria-label="Current section outline">
-                                <h3>Outline</h3>
-                                <Show when={outlineItems().length > 0} fallback={<p>No headings in this section.</p>}>
-                                    <ul><For each={outlineItems()}>{(heading) => <li><button type="button" classList={{ [`level-${heading.level}`]: true }} onClick={() => {
-                                        if (mode() === "rich") richNavigate?.(heading.title);
-                                        else {
-                                            const offset = view?.state.doc.line(heading.line).from ?? 0;
-                                            view?.dispatch({ selection: { anchor: offset }, scrollIntoView: true });
-                                            view?.focus();
-                                        }
-                                    }}>{heading.title}</button></li>}</For></ul>
-                                </Show>
-                            </nav>
-                        </div>
+                                <details class="book-tools__details">
+                                    <summary>Replace across manuscript</summary>
+                                    <label>
+                                        Find
+                                        <input
+                                            name="manuscript-replace-find"
+                                            autocomplete="off"
+                                            value={replaceText()}
+                                            onInput={(event) =>
+                                                setReplaceText(event.currentTarget.value)
+                                            }
+                                        />
+                                    </label>
+                                    <label>
+                                        Replace with
+                                        <input
+                                            name="manuscript-replace-with"
+                                            autocomplete="off"
+                                            value={replaceWith()}
+                                            onInput={(event) =>
+                                                setReplaceWith(event.currentTarget.value)
+                                            }
+                                        />
+                                    </label>
+                                    <button
+                                        type="button"
+                                        disabled={replaceText().length === 0}
+                                        onClick={() => replaceAcrossBook()}
+                                    >
+                                        Replace all
+                                    </button>
+                                    <Show when={bookReplacementHistoryStep()}>
+                                        {(historyStep) => (
+                                            <button
+                                                type="button"
+                                                class="book-tools__replace-undo"
+                                                onClick={() =>
+                                                    performHistoryStep(historyStep().redo)
+                                                }
+                                            >
+                                                {historyStep().redo
+                                                    ? "Redo replace all"
+                                                    : "Undo replace all"}
+                                            </button>
+                                        )}
+                                    </Show>
+                                </details>
+                                <nav
+                                    class="book-tools__outline"
+                                    aria-label="Current section outline"
+                                >
+                                    <h3>Outline</h3>
+                                    <Show
+                                        when={outlineItems().length > 0}
+                                        fallback={<p>No headings in this section.</p>}
+                                    >
+                                        <ul>
+                                            <For each={outlineItems()}>
+                                                {(heading) => (
+                                                    <li>
+                                                        <button
+                                                            type="button"
+                                                            classList={{
+                                                                [`level-${heading.level}`]: true
+                                                            }}
+                                                            onClick={() => {
+                                                                if (mode() === "rich")
+                                                                    richNavigate?.(heading.title);
+                                                                else {
+                                                                    const offset =
+                                                                        view?.state.doc.line(
+                                                                            heading.line
+                                                                        ).from ?? 0;
+                                                                    view?.dispatch({
+                                                                        selection: {
+                                                                            anchor: offset
+                                                                        },
+                                                                        scrollIntoView: true
+                                                                    });
+                                                                    view?.focus();
+                                                                }
+                                                            }}
+                                                        >
+                                                            {heading.title}
+                                                        </button>
+                                                    </li>
+                                                )}
+                                            </For>
+                                        </ul>
+                                    </Show>
+                                </nav>
+                            </div>
                         </Show>
                         <div class="file-sidebar__list">
                             <For each={folderFiles()}>
@@ -1476,10 +2046,19 @@ export function EditorPane(props: EditorPaneProps) {
                                         type="button"
                                         class="file-sidebar__file"
                                         classList={{
-                                            "is-current":
-                                                props.context.bookProjectStore.current().manifest.entries.some((bookEntry) => bookEntry.path === entry.path)
-                                                    ? props.context.bookProjectStore.current().manifest.entries.find((bookEntry) => bookEntry.path === entry.path)?.id === props.context.bookProjectStore.activeEntryId()
-                                                    : fileName() === fileNameFromPath(entry.path)
+                                            "is-current": props.context.bookProjectStore
+                                                .current()
+                                                .manifest.entries.some(
+                                                    (bookEntry) => bookEntry.path === entry.path
+                                                )
+                                                ? props.context.bookProjectStore
+                                                      .current()
+                                                      .manifest.entries.find(
+                                                          (bookEntry) =>
+                                                              bookEntry.path === entry.path
+                                                      )?.id ===
+                                                  props.context.bookProjectStore.activeEntryId()
+                                                : fileName() === fileNameFromPath(entry.path)
                                         }}
                                         title={entry.path}
                                         onClick={() => void openFileFromList(entry)}
@@ -1503,7 +2082,9 @@ export function EditorPane(props: EditorPaneProps) {
                         }}
                     />
                     <Show when={mode() !== "rich" && !sourceEditorLoaded()}>
-                        <p class="editor-source-loading" role="status">Loading source editor…</p>
+                        <p class="editor-source-loading" role="status">
+                            Loading source editor…
+                        </p>
                     </Show>
                     <RichMarkdownEditor
                         source={() => props.context.editorStore.current().source}
@@ -1545,7 +2126,9 @@ export function EditorPane(props: EditorPaneProps) {
                     element.setAttribute("webkitdirectory", "");
                     element.setAttribute("directory", "");
                 }}
-                onChange={(event) => { void onFallbackFolderChange(event); }}
+                onChange={(event) => {
+                    void onFallbackFolderChange(event);
+                }}
             />
         </section>
     );
@@ -1560,7 +2143,12 @@ function errorMessage(error: unknown): string {
 }
 
 function isNotFoundError(error: unknown): boolean {
-    return typeof error === "object" && error !== null && "name" in error && error.name === "NotFoundError";
+    return (
+        typeof error === "object" &&
+        error !== null &&
+        "name" in error &&
+        error.name === "NotFoundError"
+    );
 }
 
 function fileNameFromPath(path: string): string {
@@ -1573,7 +2161,10 @@ function removeExtension(name: string): string {
 }
 
 function slug(title: string): string {
-    const value = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    const value = title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
     return value.length > 0 ? value : "book";
 }
 
@@ -1634,7 +2225,9 @@ function mathDecorations(view: CodeMirrorEditorView): DecorationSet {
                 if (value === undefined) continue;
                 const text = match[1] === "eqref" ? `(${value})` : value;
                 ranges.push(
-                    codeMirrorRuntime!.Decoration.replace({ widget: createReferenceWidget(text) }).range(from, to)
+                    codeMirrorRuntime!.Decoration.replace({
+                        widget: createReferenceWidget(text)
+                    }).range(from, to)
                 );
             }
         }
@@ -1940,10 +2533,16 @@ function advanceFence(
         : fence;
 }
 
-let formulaWidgetConstructor: (new (formula: string, display: boolean, version: number) => CodeMirrorWidgetType) | undefined;
+let formulaWidgetConstructor:
+    | (new (formula: string, display: boolean, version: number) => CodeMirrorWidgetType)
+    | undefined;
 let referenceWidgetConstructor: (new (text: string) => CodeMirrorWidgetType) | undefined;
 
-function createFormulaWidget(formula: string, display: boolean, version: number): CodeMirrorWidgetType {
+function createFormulaWidget(
+    formula: string,
+    display: boolean,
+    version: number
+): CodeMirrorWidgetType {
     const runtime = codeMirrorRuntime;
     if (runtime === undefined) throw new Error("The source editor has not finished loading.");
     formulaWidgetConstructor ??= class extends runtime.WidgetType {
@@ -1956,10 +2555,12 @@ function createFormulaWidget(formula: string, display: boolean, version: number)
         }
 
         override eq(other: CodeMirrorWidgetType): boolean {
-            return other instanceof this.constructor &&
+            return (
+                other instanceof this.constructor &&
                 (other as typeof this).formula === this.formula &&
                 (other as typeof this).display === this.display &&
-                (other as typeof this).version === this.version;
+                (other as typeof this).version === this.version
+            );
         }
 
         override toDOM(): HTMLElement {
@@ -1978,7 +2579,10 @@ function createFormulaWidget(formula: string, display: boolean, version: number)
                     trust: false,
                     macros: PHYSICS_MACROS
                 });
-                const parsed = new DOMParser().parseFromString(`<body>${output}</body>`, "text/html");
+                const parsed = new DOMParser().parseFromString(
+                    `<body>${output}</body>`,
+                    "text/html"
+                );
                 for (const child of Array.from(parsed.body.childNodes)) {
                     wrapper.appendChild(document.importNode(child, true));
                 }
@@ -2274,12 +2878,17 @@ function loadKatex(view: CodeMirrorEditorView): Promise<void> {
     });
 }
 
-function replacementPayloadSize(changes: Readonly<Record<string, readonly EditorHistoryPatch[]>>): number {
+function replacementPayloadSize(
+    changes: Readonly<Record<string, readonly EditorHistoryPatch[]>>
+): number {
     const encoder = new TextEncoder();
     let bytes = 0;
     for (const patches of Object.values(changes)) {
         for (const patch of patches) {
-            bytes += encoder.encode(patch.removed).byteLength + encoder.encode(patch.inserted).byteLength + 24;
+            bytes +=
+                encoder.encode(patch.removed).byteLength +
+                encoder.encode(patch.inserted).byteLength +
+                24;
         }
     }
     return bytes;

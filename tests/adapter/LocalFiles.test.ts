@@ -20,10 +20,14 @@ function fileHandle(name: string, source = "# file"): LocalFileHandle {
 describe("LocalFiles", () => {
     it("uses separate file-picker filters for Markdown documents and book archives", async () => {
         const previousPicker = Object.getOwnPropertyDescriptor(window, "showOpenFilePicker");
-        const requests: { types?: readonly { accept: Readonly<Record<string, readonly string[]>> }[] }[] = [];
+        const requests: {
+            types?: readonly { accept: Readonly<Record<string, readonly string[]>> }[];
+        }[] = [];
         Object.defineProperty(window, "showOpenFilePicker", {
             configurable: true,
-            value: async (options: { types?: readonly { accept: Readonly<Record<string, readonly string[]>> }[] }) => {
+            value: async (options: {
+                types?: readonly { accept: Readonly<Record<string, readonly string[]>> }[];
+            }) => {
                 requests.push(options);
                 return [];
             }
@@ -45,10 +49,16 @@ describe("LocalFiles", () => {
 
     it("uses the matching save filter for Markdown documents and book archives", async () => {
         const previousPicker = Object.getOwnPropertyDescriptor(window, "showSaveFilePicker");
-        const requests: { suggestedName?: string; types?: readonly { accept: Readonly<Record<string, readonly string[]>> }[] }[] = [];
+        const requests: {
+            suggestedName?: string;
+            types?: readonly { accept: Readonly<Record<string, readonly string[]>> }[];
+        }[] = [];
         Object.defineProperty(window, "showSaveFilePicker", {
             configurable: true,
-            value: async (options: { suggestedName?: string; types?: readonly { accept: Readonly<Record<string, readonly string[]>> }[] }) => {
+            value: async (options: {
+                suggestedName?: string;
+                types?: readonly { accept: Readonly<Record<string, readonly string[]>> }[];
+            }) => {
                 requests.push(options);
                 return fileHandle(options.suggestedName ?? "draft.md");
             }

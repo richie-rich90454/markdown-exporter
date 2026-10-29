@@ -807,7 +807,7 @@ textarea {
 }
 
 .book-tools__section-actions button:disabled {
-    opacity: .38;
+    opacity: 0.38;
     cursor: default;
 }
 
@@ -845,7 +845,8 @@ textarea {
     color: var(--text-tertiary);
 }
 
-.book-tools input {
+.book-tools input,
+.book-tools select {
     min-width: 0;
     width: 100%;
     min-height: 36px;
@@ -922,11 +923,15 @@ textarea {
     font-weight: 600;
 }
 
-.book-tools__outline .level-2 { padding-left: 14px; }
+.book-tools__outline .level-2 {
+    padding-left: 14px;
+}
 .book-tools__outline .level-3,
 .book-tools__outline .level-4,
 .book-tools__outline .level-5,
-.book-tools__outline .level-6 { padding-left: 24px; }
+.book-tools__outline .level-6 {
+    padding-left: 24px;
+}
 
 @media (max-width: 600px) {
     .editor-toolbar {
@@ -968,7 +973,6 @@ textarea {
     .pane--editor-focus .editor-workspace:has(> .file-sidebar) .editor-surfaces {
         display: flex;
     }
-
 }
 
 .file-sidebar__header {

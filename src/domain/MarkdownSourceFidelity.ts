@@ -27,9 +27,10 @@ export function preserveMarkdownSource(
     for (let sourceIndex = 0; sourceIndex < original.length; sourceIndex += 1) {
         const block = original[sourceIndex];
         if (block === undefined) continue;
-        const match = sourceSignatures(block.source)
-            .map((candidate) => findBlock(baselineLookup, candidate, baselineCursor))
-            .find((candidate) => candidate >= 0) ?? -1;
+        const match =
+            sourceSignatures(block.source)
+                .map((candidate) => findBlock(baselineLookup, candidate, baselineCursor))
+                .find((candidate) => candidate >= 0) ?? -1;
         if (match >= 0) {
             baselineIndexBySource.set(sourceIndex, match);
             baselineCursor = match + 1;
@@ -51,7 +52,11 @@ export function preserveMarkdownSource(
         const sourceBlock = original[sourceIndex];
         const baselineBlock = baseline[baselineIndex];
         const currentBlock = current[currentIndex];
-        if (sourceBlock !== undefined && baselineBlock !== undefined && currentBlock !== undefined) {
+        if (
+            sourceBlock !== undefined &&
+            baselineBlock !== undefined &&
+            currentBlock !== undefined
+        ) {
             if (baselineBlock.signature === currentBlock.signature) {
                 replacements.set(currentIndex, sourceBlock.source);
             } else {
@@ -65,12 +70,16 @@ export function preserveMarkdownSource(
         }
     }
 
-    const insertions = new Map<number, { readonly block: MarkdownBlock; readonly sourceIndex: number }[]>();
+    const insertions = new Map<
+        number,
+        { readonly block: MarkdownBlock; readonly sourceIndex: number }[]
+    >();
     const currentSignatures = new Set(current.map((block) => block.signature));
     for (let sourceIndex = 0; sourceIndex < original.length; sourceIndex += 1) {
         const block = original[sourceIndex];
         if (block === undefined || !isOpaque(block.source)) continue;
-        if (currentIndexBySource.has(sourceIndex) || currentSignatures.has(block.signature)) continue;
+        if (currentIndexBySource.has(sourceIndex) || currentSignatures.has(block.signature))
+            continue;
 
         let insertionIndex = current.length;
         if (sourceIndex === 0) {
@@ -104,10 +113,12 @@ export function preserveMarkdownSource(
     }
     const output: { readonly source: string; readonly originalIndex?: number }[] = [];
     for (let index = 0; index <= current.length; index += 1) {
-        output.push(...(insertions.get(index) ?? []).map(({ block, sourceIndex }) => ({
-            source: block.source,
-            originalIndex: sourceIndex
-        })));
+        output.push(
+            ...(insertions.get(index) ?? []).map(({ block, sourceIndex }) => ({
+                source: block.source,
+                originalIndex: sourceIndex
+            }))
+        );
         if (index === current.length) break;
         const sourceIndex = sourceByCurrent.get(index);
         output.push({
@@ -126,8 +137,10 @@ export function preserveMarkdownSource(
         const previousBlock = previousIndex === undefined ? undefined : original[previousIndex];
         const nextBlock = nextIndex === undefined ? undefined : original[nextIndex];
         separators.push(
-            previousIndex !== undefined && nextIndex === previousIndex + 1 &&
-            previousBlock !== undefined && nextBlock !== undefined
+            previousIndex !== undefined &&
+                nextIndex === previousIndex + 1 &&
+                previousBlock !== undefined &&
+                nextBlock !== undefined
                 ? originalSource.slice(previousBlock.end, nextBlock.start)
                 : defaultSeparator
         );
@@ -136,12 +149,14 @@ export function preserveMarkdownSource(
     const lastIndex = output.at(-1)?.originalIndex;
     const firstBlock = firstIndex === undefined ? undefined : original[firstIndex];
     const lastBlock = lastIndex === undefined ? undefined : original[lastIndex];
-    const leading = firstIndex === 0 && firstBlock !== undefined
-        ? originalSource.slice(0, firstBlock.start)
-        : "";
-    const trailing = lastIndex === original.length - 1 && lastBlock !== undefined
-        ? originalSource.slice(lastBlock.end)
-        : "";
+    const leading =
+        firstIndex === 0 && firstBlock !== undefined
+            ? originalSource.slice(0, firstBlock.start)
+            : "";
+    const trailing =
+        lastIndex === original.length - 1 && lastBlock !== undefined
+            ? originalSource.slice(lastBlock.end)
+            : "";
     let result = leading;
     for (let index = 0; index < output.length; index += 1) {
         if (index > 0) result += separators[index - 1] ?? "\n\n";
@@ -209,7 +224,11 @@ function indexBlocks(blocks: readonly MarkdownBlock[]): Map<string, number[]> {
     return positions;
 }
 
-function findBlock(lookup: ReadonlyMap<string, readonly number[]>, signature: string, from: number): number {
+function findBlock(
+    lookup: ReadonlyMap<string, readonly number[]>,
+    signature: string,
+    from: number
+): number {
     const positions = lookup.get(signature);
     if (positions === undefined) return -1;
     let low = 0;
@@ -250,14 +269,22 @@ function splitBlocks(source: string): MarkdownBlock[] {
     let firstLine = 0;
     const frontMatterMarker = /^\s*(---|\+\+\+)\s*$/.exec(lines[0] ?? "")?.[1];
     if (frontMatterMarker !== undefined) {
-        const closing = lines.findIndex((line, index) => index > 0 && line.trim() === frontMatterMarker);
+        const closing = lines.findIndex(
+            (line, index) => index > 0 && line.trim() === frontMatterMarker
+        );
         if (closing > 0) {
             const frontMatter = lines.slice(0, closing + 1).join("\n");
             const normalizedStart = lineStarts[0] ?? 0;
-            const normalizedEnd = (lineStarts[closing] ?? normalizedStart) + (lines[closing]?.length ?? 0);
+            const normalizedEnd =
+                (lineStarts[closing] ?? normalizedStart) + (lines[closing]?.length ?? 0);
             const start = sourceOffsets[normalizedStart] ?? normalizedStart;
             const end = sourceOffsets[normalizedEnd] ?? normalizedEnd;
-            blocks.push({ source: source.slice(start, end), signature: signature(frontMatter), start, end });
+            blocks.push({
+                source: source.slice(start, end),
+                signature: signature(frontMatter),
+                start,
+                end
+            });
             firstLine = closing + 1;
         }
     }
@@ -276,11 +303,14 @@ function splitBlocks(source: string): MarkdownBlock[] {
                 blocks.push({
                     source: source.slice(
                         sourceOffsets[first.start] ?? first.start,
-                        sourceOffsets[last.start + last.text.length] ?? last.start + last.text.length
+                        sourceOffsets[last.start + last.text.length] ??
+                            last.start + last.text.length
                     ),
                     signature: signature(value),
                     start: sourceOffsets[first.start] ?? first.start,
-                    end: sourceOffsets[last.start + last.text.length] ?? last.start + last.text.length
+                    end:
+                        sourceOffsets[last.start + last.text.length] ??
+                        last.start + last.text.length
                 });
             }
         }
@@ -294,7 +324,10 @@ function splitBlocks(source: string): MarkdownBlock[] {
         const open = /^(`{3,}|~{3,})/.exec(trimmed)?.[1];
         if (fence === undefined && open !== undefined) {
             fence = { marker: open[0] ?? "`", length: open.length };
-        } else if (fence !== undefined && new RegExp(`^${fence.marker}{${fence.length},}\\s*$`).test(trimmed)) {
+        } else if (
+            fence !== undefined &&
+            new RegExp(`^${fence.marker}{${fence.length},}\\s*$`).test(trimmed)
+        ) {
             fence = undefined;
         }
 
@@ -307,7 +340,12 @@ function splitBlocks(source: string): MarkdownBlock[] {
             if (trimmed.startsWith("<!--")) htmlEnd = "-->";
             else {
                 const htmlTag = /^<([a-z][\w-]*)\b/i.exec(trimmed)?.[1];
-                if (htmlTag !== undefined && /^(?:address|article|aside|blockquote|body|caption|center|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|h[1-6]|head|header|hr|html|iframe|legend|li|main|menu|nav|ol|optgroup|option|p|pre|script|section|style|table|tbody|td|tfoot|th|thead|tr|ul)$/i.test(htmlTag)) {
+                if (
+                    htmlTag !== undefined &&
+                    /^(?:address|article|aside|blockquote|body|caption|center|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|h[1-6]|head|header|hr|html|iframe|legend|li|main|menu|nav|ol|optgroup|option|p|pre|script|section|style|table|tbody|td|tfoot|th|thead|tr|ul)$/i.test(
+                        htmlTag
+                    )
+                ) {
                     htmlEnd = `</${htmlTag}`;
                 }
             }
@@ -329,7 +367,12 @@ function splitBlocks(source: string): MarkdownBlock[] {
 
         if (/^\[\^[^\]]+\]:/.test(trimmed)) footnoteContinuation = true;
 
-        if (fence === undefined && directiveDepth === 0 && htmlEnd === undefined && line.trim().length === 0) {
+        if (
+            fence === undefined &&
+            directiveDepth === 0 &&
+            htmlEnd === undefined &&
+            line.trim().length === 0
+        ) {
             flush();
             continue;
         }
@@ -369,7 +412,8 @@ function signature(value: string): string {
         return `__FENCED_CODE__${info}\n${body}\n${closed ? "closed" : "open"}`;
     }
     const setext = /^([^\n]+)\n\s*(=+|-+)\s*$/.exec(normalized);
-    const heading = setext === null ? normalized : `${setext[2]?.[0] === "=" ? "#" : "##"} ${setext[1]}`;
+    const heading =
+        setext === null ? normalized : `${setext[2]?.[0] === "=" ? "#" : "##"} ${setext[1]}`;
     let hardBreakCount = 0;
     const protectedCode = heading
         .replace(/ {2,}\n/g, () => `__HARD_BREAK_${hardBreakCount++}__`)
@@ -402,7 +446,11 @@ const unsupportedInlinePatterns: readonly {
     { pattern: /<!--[\s\S]*?-->/g, comparisonText: () => "" },
     { pattern: /!?(?:\[\[[^\]\r\n]+\]\])/g, comparisonText: wikiLinkDisplayText },
     { pattern: /\[@[^\]\r\n]+\]/g, comparisonText: () => "" },
-    { pattern: /\{(?:#[A-Za-z_][\w-]*|\.[A-Za-z_][\w-]*)(?:\s+(?:#[A-Za-z_][\w-]*|\.[A-Za-z_][\w-]*))*\}/g, comparisonText: () => "" }
+    {
+        pattern:
+            /\{(?:#[A-Za-z_][\w-]*|\.[A-Za-z_][\w-]*)(?:\s+(?:#[A-Za-z_][\w-]*|\.[A-Za-z_][\w-]*))*\}/g,
+        comparisonText: () => ""
+    }
 ];
 
 function wikiLinkDisplayText(raw: string): string {
@@ -412,8 +460,9 @@ function wikiLinkDisplayText(raw: string): string {
 }
 
 function unsupportedInlineTokens(source: string): UnsupportedInlineToken[] {
-    const codeRanges = [...source.matchAll(/(?<!\\)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g)]
-        .map((match) => ({ start: match.index ?? 0, end: (match.index ?? 0) + match[0].length }));
+    const codeRanges = [...source.matchAll(/(?<!\\)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g)].map(
+        (match) => ({ start: match.index ?? 0, end: (match.index ?? 0) + match[0].length })
+    );
     const tokens: UnsupportedInlineToken[] = [];
     for (const { pattern, comparisonText } of unsupportedInlinePatterns) {
         pattern.lastIndex = 0;
@@ -451,8 +500,9 @@ function withoutUnsupportedInlinePattern(
     source: string,
     rule: (typeof unsupportedInlinePatterns)[number]
 ): string {
-    const codeRanges = [...source.matchAll(/(?<!\\)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g)]
-        .map((match) => ({ start: match.index ?? 0, end: (match.index ?? 0) + match[0].length }));
+    const codeRanges = [...source.matchAll(/(?<!\\)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g)].map(
+        (match) => ({ start: match.index ?? 0, end: (match.index ?? 0) + match[0].length })
+    );
     rule.pattern.lastIndex = 0;
     const matches = [...source.matchAll(rule.pattern)]
         .map((match) => ({
@@ -460,17 +510,25 @@ function withoutUnsupportedInlinePattern(
             start: match.index ?? 0,
             end: (match.index ?? 0) + match[0].length
         }))
-        .filter((token) => !codeRanges.some((range) => token.start >= range.start && token.end <= range.end));
+        .filter(
+            (token) =>
+                !codeRanges.some((range) => token.start >= range.start && token.end <= range.end)
+        );
     let result = source;
     for (let index = matches.length - 1; index >= 0; index -= 1) {
         const token = matches[index];
         if (token === undefined) continue;
-        result = result.slice(0, token.start) + rule.comparisonText(token.raw) + result.slice(token.end);
+        result =
+            result.slice(0, token.start) + rule.comparisonText(token.raw) + result.slice(token.end);
     }
     return result;
 }
 
-function restoreUnsupportedInlineTokens(original: string, baseline: string, current: string): string {
+function restoreUnsupportedInlineTokens(
+    original: string,
+    baseline: string,
+    current: string
+): string {
     const missing = unsupportedInlineTokens(original);
     let result = current;
     for (let index = missing.length - 1; index >= 0; index -= 1) {
@@ -482,9 +540,10 @@ function restoreUnsupportedInlineTokens(original: string, baseline: string, curr
             continue;
         }
         if (baseline.includes(token.raw) || result.includes(token.raw)) continue;
-        const equivalent = token.comparisonText.length > 0
-            ? findEquivalentText(result, original, token, token.comparisonText)
-            : undefined;
+        const equivalent =
+            token.comparisonText.length > 0
+                ? findEquivalentText(result, original, token, token.comparisonText)
+                : undefined;
         if (equivalent !== undefined) {
             result = result.slice(0, equivalent.start) + token.raw + result.slice(equivalent.end);
             continue;
@@ -544,10 +603,13 @@ function locateTokenByRelativePosition(
     const target = Math.round(current.length * ratio);
     let offset: number | undefined;
     for (let distance = 0; distance <= current.length && offset === undefined; distance += 1) {
-        for (const candidate of distance === 0 ? [target] : [target - distance, target + distance]) {
+        for (const candidate of distance === 0
+            ? [target]
+            : [target - distance, target + distance]) {
             if (candidate < 0 || candidate > current.length) continue;
             const leftBoundary = candidate === 0 || /\s/.test(current[candidate - 1] ?? "");
-            const rightBoundary = candidate === current.length || /\s/.test(current[candidate] ?? "");
+            const rightBoundary =
+                candidate === current.length || /\s/.test(current[candidate] ?? "");
             if (leftBoundary && rightBoundary) {
                 offset = candidate;
                 break;
@@ -602,7 +664,11 @@ function words(source: string): string[] {
     return [...source.matchAll(/[\p{L}\p{N}_-]+/gu)].map((match) => match[0]);
 }
 
-function firstWordOccurrence(source: string, candidates: readonly string[], fromEnd: boolean): WordOccurrence | undefined {
+function firstWordOccurrence(
+    source: string,
+    candidates: readonly string[],
+    fromEnd: boolean
+): WordOccurrence | undefined {
     for (const word of candidates) {
         const occurrences = wordOccurrences(source, word);
         const occurrence = fromEnd ? occurrences.at(-1) : occurrences[0];

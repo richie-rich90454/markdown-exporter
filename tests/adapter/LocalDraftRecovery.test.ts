@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { BrowserDraftRecovery, chooseLatestRecoveryDraft } from "../../src/adapter/io/LocalDraftRecovery";
+import {
+    BrowserDraftRecovery,
+    chooseLatestRecoveryDraft
+} from "../../src/adapter/io/LocalDraftRecovery";
 import { createSingleChapterBook } from "../../src/domain/BookProject";
 import type { RecoveredDraft } from "../../src/port/DraftRecovery";
 
@@ -23,7 +26,7 @@ describe("LocalDraftRecovery", () => {
     });
 
     it("recovers a complete book project and its local binary assets", async () => {
-        const chapterSource = "+++\ntitle = \"Recovery chapter\"\n+++\n\n# Recovery\n\nText.";
+        const chapterSource = '+++\ntitle = "Recovery chapter"\n+++\n\n# Recovery\n\nText.';
         const base = createSingleChapterBook(chapterSource, "Recovery");
         const project = {
             ...base,
@@ -45,13 +48,14 @@ describe("LocalDraftRecovery", () => {
                     }
                 ],
                 bibliographyPath: "references/library.bib",
+                citationStyleId: "vancouver" as const,
                 citationStylePath: "styles/custom.csl"
             },
             files: {
                 ...base.files,
                 "front-matter/preface.md": "# Preface\n\nOpening note.",
                 "references/library.bib": "@book{local, title={Local source}}",
-                "styles/custom.csl": "<style version=\"1.0\"/>",
+                "styles/custom.csl": '<style version="1.0"/>',
                 "assets/cover.png": new Uint8Array([0, 127, 255])
             }
         };
@@ -66,11 +70,16 @@ describe("LocalDraftRecovery", () => {
         });
         expect(restored?.bookProject?.manifest.bibliographyPath).toBe("references/library.bib");
         expect(restored?.bookProject?.manifest.citationStylePath).toBe("styles/custom.csl");
+        expect(restored?.bookProject?.manifest.citationStyleId).toBe("vancouver");
         expect(restored?.activeEntryId).toBe("front-matter-2");
         expect(restored?.source).toBe(chapterSource);
-        expect(restored?.bookProject?.files["front-matter/preface.md"]).toBe("# Preface\n\nOpening note.");
+        expect(restored?.bookProject?.files["front-matter/preface.md"]).toBe(
+            "# Preface\n\nOpening note."
+        );
         expect(restored?.bookProject?.files["references/library.bib"]).toContain("@book{local");
-        expect(restored?.bookProject?.files["assets/cover.png"]).toEqual(new Uint8Array([0, 127, 255]));
+        expect(restored?.bookProject?.files["assets/cover.png"]).toEqual(
+            new Uint8Array([0, 127, 255])
+        );
     });
 
     it("recovers a book project when its active section is intentionally empty", async () => {
@@ -111,10 +120,7 @@ describe("LocalDraftRecovery", () => {
     it("serializes overlapping autosaves in the order the editor requested them", async () => {
         const recovery = new BrowserDraftRecovery();
 
-        await Promise.all([
-            recovery.save("First edit"),
-            recovery.save("Final edit")
-        ]);
+        await Promise.all([recovery.save("First edit"), recovery.save("Final edit")]);
 
         expect((await recovery.load())?.source).toBe("Final edit");
     });

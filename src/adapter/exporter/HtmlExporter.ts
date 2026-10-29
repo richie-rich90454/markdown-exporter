@@ -68,7 +68,8 @@ export class HtmlExporter implements DocumentExporter {
         for (const [index, section] of sections.entries()) {
             resolveBookImageReferences(section.content, request.bookProject, section.entry?.path);
             const wrapper = document.createElement("section");
-            wrapper.className = isBook && section.entry?.role === "chapter" ? "book-chapter" : "book-section";
+            wrapper.className =
+                isBook && section.entry?.role === "chapter" ? "book-chapter" : "book-section";
             wrapper.id = `section-${index + 1}`;
             if (section.content instanceof DocumentFragment) wrapper.append(section.content);
             else wrapper.append(section.content.cloneNode(true));
@@ -82,14 +83,21 @@ export class HtmlExporter implements DocumentExporter {
             ? ""
             : await (await import("./KatexAssets")).katexStylesWithEmbeddedFonts(contentRoot);
         const dimensions = pageDimensions(request.pageSetup);
-        const fontFamily = request.pageSetup.fontFamily === "sans"
-            ? "'Noto Sans',Arial,sans-serif"
-            : request.pageSetup.fontFamily === "mono"
-                ? "ui-monospace,SFMono-Regular,Consolas,monospace"
-                : "Georgia,'Times New Roman',serif";
+        const fontFamily =
+            request.pageSetup.fontFamily === "sans"
+                ? "'Noto Sans',Arial,sans-serif"
+                : request.pageSetup.fontFamily === "mono"
+                  ? "ui-monospace,SFMono-Regular,Consolas,monospace"
+                  : "Georgia,'Times New Roman',serif";
         const styles = `${STYLESHEET}\nbody{font-family:${fontFamily};font-size:${request.pageSetup.fontSizePt}pt;line-height:${request.pageSetup.lineHeight}}\n@page{size:${dimensions.widthMm}mm ${dimensions.heightMm}mm;margin:${request.pageSetup.marginMm}mm}\n${katexStyles}\n.katex-error{color:#b42318}`;
-        const authors = metadata?.authors.map((author) => `<meta name="author" content="${HtmlEscaper.escape(author)}">`).join("\n") ?? "";
-        const isbn = metadata?.isbn === undefined ? "" : `<meta name="isbn" content="${HtmlEscaper.escape(metadata.isbn)}">`;
+        const authors =
+            metadata?.authors
+                .map((author) => `<meta name="author" content="${HtmlEscaper.escape(author)}">`)
+                .join("\n") ?? "";
+        const isbn =
+            metadata?.isbn === undefined
+                ? ""
+                : `<meta name="isbn" content="${HtmlEscaper.escape(metadata.isbn)}">`;
         const html =
             `<!doctype html>\n<html lang="${HtmlEscaper.escape(language)}">\n<head>\n<meta charset="utf-8">\n` +
             `<meta name="viewport" content="width=device-width, initial-scale=1">\n` +
@@ -103,7 +111,9 @@ export class HtmlExporter implements DocumentExporter {
     }
 }
 
-function createTableOfContents(sections: Awaited<ReturnType<typeof renderBookSections>>): HTMLElement {
+function createTableOfContents(
+    sections: Awaited<ReturnType<typeof renderBookSections>>
+): HTMLElement {
     const nav = document.createElement("nav");
     nav.className = "book-table-of-contents";
     nav.setAttribute("aria-label", "Table of contents");

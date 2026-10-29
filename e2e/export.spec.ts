@@ -307,7 +307,10 @@ test("breaks the preview and the exported file on the same pages", async ({ page
     );
     await page.getByLabel("Markdown editor").fill(pageDocument);
 
-    const pageCount = page.locator(".statusbar__item").filter({ hasText: "Pages" }).locator(".statusbar__value");
+    const pageCount = page
+        .locator(".statusbar__item")
+        .filter({ hasText: "Pages" })
+        .locator(".statusbar__value");
     await expect(page.locator(".preview__flow li")).toHaveCount(95);
     await expect.poll(async () => Number(await pageCount.textContent())).toBeGreaterThan(3);
 

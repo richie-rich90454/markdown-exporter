@@ -13,8 +13,11 @@ const ENTRY_LIMIT = 10_000;
 const MANIFEST_LIMIT = 1024 * 1024;
 
 /** Builds a validated book from a directory input on browsers without folder handles. */
-export async function bookProjectFromFiles(selectedFiles: readonly File[]): Promise<BookProject | null> {
-    if (selectedFiles.length > ENTRY_LIMIT) throw new Error("The selected folder contains too many files.");
+export async function bookProjectFromFiles(
+    selectedFiles: readonly File[]
+): Promise<BookProject | null> {
+    if (selectedFiles.length > ENTRY_LIMIT)
+        throw new Error("The selected folder contains too many files.");
     const root = commonRoot(selectedFiles);
     const files: Record<string, BookFileData> = {};
     const canonicalPaths = new Set<string>();
@@ -25,9 +28,11 @@ export async function bookProjectFromFiles(selectedFiles: readonly File[]): Prom
         const selectedPath = file.webkitRelativePath || file.name;
         const path = root === undefined ? selectedPath : selectedPath.slice(root.length + 1);
         assertSafeBookPath(path);
-        if (file.size > FILE_LIMIT) throw new Error(`The selected file ${path} exceeds the 64 MiB limit.`);
+        if (file.size > FILE_LIMIT)
+            throw new Error(`The selected file ${path} exceeds the 64 MiB limit.`);
         totalSize += file.size;
-        if (totalSize > TOTAL_LIMIT) throw new Error("The selected folder exceeds the 256 MiB size limit.");
+        if (totalSize > TOTAL_LIMIT)
+            throw new Error("The selected folder exceeds the 256 MiB size limit.");
         const pathKey = canonicalBookPath(path);
         if (canonicalPaths.has(pathKey)) throw new Error(`The selected folder repeats ${path}.`);
         canonicalPaths.add(pathKey);

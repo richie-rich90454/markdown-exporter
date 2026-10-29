@@ -13,7 +13,12 @@ export interface Run {
 }
 
 export type Block =
-    | { readonly kind: "heading"; readonly level: number; readonly runs: readonly Run[]; readonly id?: string | undefined }
+    | {
+          readonly kind: "heading";
+          readonly level: number;
+          readonly runs: readonly Run[];
+          readonly id?: string | undefined;
+      }
     | { readonly kind: "paragraph"; readonly runs: readonly Run[] }
     | { readonly kind: "math"; readonly math: MathLayout }
     | { readonly kind: "code"; readonly lines: readonly string[] }
@@ -253,8 +258,10 @@ function parseFlow(
         ];
     });
     const containsNestedBlocks = nodes.some(
-        (node) => node.nodeType === Node.ELEMENT_NODE &&
-            (isBlockTag((node as HTMLElement).tagName) || /^H[1-6]$/.test((node as HTMLElement).tagName))
+        (node) =>
+            node.nodeType === Node.ELEMENT_NODE &&
+            (isBlockTag((node as HTMLElement).tagName) ||
+                /^H[1-6]$/.test((node as HTMLElement).tagName))
     );
     if (images.length === 0 && !containsNestedBlocks) {
         const runs = inlineRuns(element, nodes);

@@ -14,7 +14,10 @@ export function cloneBookProject(project: BookProject): BookProject {
     return {
         manifest: {
             ...project.manifest,
-            metadata: { ...project.manifest.metadata, authors: [...project.manifest.metadata.authors] },
+            metadata: {
+                ...project.manifest.metadata,
+                authors: [...project.manifest.metadata.authors]
+            },
             entries: project.manifest.entries.map((entry) => ({ ...entry }))
         },
         files
@@ -37,7 +40,12 @@ export function sameBookProject(left: BookProject, right: BookProject): boolean 
             if (leftData !== rightData) return false;
             continue;
         }
-        if (leftData === undefined || rightData === undefined || leftData.length !== rightData.length) return false;
+        if (
+            leftData === undefined ||
+            rightData === undefined ||
+            leftData.length !== rightData.length
+        )
+            return false;
         for (let byte = 0; byte < leftData.length; byte += 1) {
             if (leftData[byte] !== rightData[byte]) return false;
         }

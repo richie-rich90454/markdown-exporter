@@ -23,6 +23,8 @@ function contentSecurityPolicy(): Plugin {
                 "img-src 'self' data: blob:",
                 "font-src 'self' data:",
                 "connect-src 'self' blob:",
+                "worker-src 'self' blob:",
+                "manifest-src 'self'",
                 "form-action 'none'",
                 "base-uri 'none'",
                 "object-src 'none'",
@@ -48,7 +50,47 @@ export default defineConfig({
         dedupe: ["katex"]
     },
     build: {
-        target: "es2022"
+        target: "es2022",
+        // The manifest lets the budget checker follow exact static imports and
+        // their CSS instead of guessing from minified JavaScript text.
+        manifest: true,
+        rolldownOptions: {
+            output: {
+                // Keep optional capabilities in independently cached chunks.
+                // Each group is entry-aware so a document exporter cannot pull
+                // the other exporters into its load path. The order safeguard
+                // matters for packages that register extensions at module load.
+                strictExecutionOrder: true,
+                codeSplitting: {
+                    groups: [
+                        {
+                            name: "diagram-vendor",
+                            test: /node_modules[\\/](?:mermaid|@mermaid-js|dagre|@dagrejs)[\\/]/,
+                            entriesAware: true,
+                            minSize: 12 * 1024,
+                            maxSize: 240 * 1024,
+                            priority: 30
+                        },
+                        {
+                            name: "publishing-vendor",
+                            test: /node_modules[\\/](?:docx|@citation-js|fflate)[\\/]/,
+                            entriesAware: true,
+                            minSize: 12 * 1024,
+                            maxSize: 220 * 1024,
+                            priority: 20
+                        },
+                        {
+                            name: "rich-editor-vendor",
+                            test: /node_modules[\\/](?:@milkdown|prosemirror|@codemirror|@lezer)[\\/]/,
+                            entriesAware: true,
+                            minSize: 12 * 1024,
+                            maxSize: 220 * 1024,
+                            priority: 10
+                        }
+                    ]
+                }
+            }
+        }
     },
     test: {
         environment: "jsdom",

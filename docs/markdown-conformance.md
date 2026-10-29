@@ -2,7 +2,7 @@
 
 This is the fixed compatibility target for the local editor. It combines CommonMark, GFM, and the syntax documented by Typora. It is a project snapshot, not a promise to track future Typora changes automatically.
 
-Legend: a checked item is implemented by the shared preview renderer. It does not mean that every item has complete rich-editor and every-export fixture coverage. **Partial** marks a known output limitation. The editor and exporter regression matrices are being expanded alongside implementation.
+Legend: a checked item is implemented by the shared preview renderer. It does not mean that every item has complete rich-editor and every-export fixture coverage. **Partial** marks a known output limitation. The source round-trip and publishing checks below state their own coverage.
 
 ## CommonMark and GFM
 
@@ -44,10 +44,12 @@ Legend: a checked item is implemented by the shared preview renderer. It does no
 
 - [x] Milkdown/ProseMirror rich editing opens by default; CodeMirror 6 source and inline modes remain available
 - [x] The CodeMirror modes share one source document and history; rich editing is synchronized through the same document store
-- [ ] Rich mode has exact source-preserving round trips for every unsupported extension; use Source mode for unfamiliar or unsupported syntax
+- [x] Rich mode preserves unchanged Markdown blocks in their original spelling and restores front matter, footnote definitions, directives, reference definitions, and raw HTML omitted by its schema
+- [x] Recognized unsupported inline tokens survive rich edits; tokens without surviving text anchors retain their relative position within rewritten prose
+- [ ] Exact source placement for arbitrary third-party syntax inside a completely rewritten block is inherently ambiguous; Source mode remains available when placement matters
 - [x] Open and save individual local files when the browser supports file handles
 - [x] Local folder sidebar with Markdown file discovery and open/save
-- [x] Ordered book sections, metadata, local references, rename/reorder/delete, outline, word counts, and manuscript-wide search/replace
+- [x] Ordered book sections, metadata, editable/importable BibTeX, APA 7/Harvard/Vancouver styles, custom local CSL imports, rename/reorder/delete, outline, word counts, and manuscript-wide search/replace
 - [x] Versioned `book.json` folders and `.mdbook` ZIP packages with path and expanded-size validation
 - [x] File input and download fallbacks for browsers without local file handles
 - [x] Current Markdown and the complete book project recover on-device through IndexedDB, with localStorage fallback
@@ -57,12 +59,15 @@ Legend: a checked item is implemented by the shared preview renderer. It does no
 - [x] PDF, standalone HTML, EPUB 3, and DOCX exports are loaded only when selected
 - [x] PDF, HTML, EPUB, and DOCX exports include the ordered book sections; the live paginated preview still shows the active section
 - [x] PDF book exports include page numbers and running book-title headers
+- [x] PDF book contents entries and rendered headings use internal page destinations
 - [x] DOCX book exports apply the selected trim size and margins, with running headers and page-number fields
-- [ ] PDF TOC links, full cross-browser rich editing, automated EPUBCheck, and a 100,000-word responsiveness benchmark are not yet verified
+- [x] The automated Playwright suite passed in Chromium, Firefox, and WebKit: 208 passed, 5 skipped. The skipped cases are the opt-in stress test in each browser and system-clipboard permission checks outside Chromium; synthetic paste handling is exercised in all three.
+- [ ] EPUBCheck and opening generated DOCX files in Word or LibreOffice remain external validation steps; those tools are not installed in this environment
+- [x] The dedicated 100,000-word browser benchmark passes with `pnpm test:perf`
 
 ## Regression fixtures
 
-The automated suite includes fixtures for the reported math, PDF layout, multilingual PDF text, local file recovery, book archives, EPUB/DOCX packages, chapter breaks, page-size geometry, and local citation output. It does not yet execute every checklist item through every editor mode and all four exporters. This is an explicit coverage gap, not a claim that the full Typora compatibility matrix has passed.
+The automated suite includes fixtures for the reported math, PDF layout, multilingual PDF text, local file recovery, book archives, EPUB/DOCX packages, chapter breaks, page-size geometry, local citation output, and rich-mode preservation of source constructs omitted by the rich schema. A shared conformance corpus exercises front matter, generated TOC, alerts, inline Typora extensions, GFM tasks/tables/links, sanitized HTML, code, citations, footnotes, all math delimiter forms, chemistry commands, equation references, valid and malformed diagrams, and recovery after malformed blocks through source mode, rich mode, preview, and all four exporters. The renderer also has focused tests for the broader diagram families and individual syntax rules. This fixed corpus covers the documented syntax snapshot; it does not exhaustively test every possible combination of syntax features.
 
 ## References
 

@@ -311,7 +311,10 @@ export function writePdf(
     );
 
     const catalogIndex = reserve();
-    put(catalogIndex, `<< /Type /Catalog /Pages ${pagesIndex} 0 R /Lang ${literal(metadata.language || "en")} >>`);
+    put(
+        catalogIndex,
+        `<< /Type /Catalog /Pages ${pagesIndex} 0 R /Lang ${literal(metadata.language || "en")} >>`
+    );
 
     const infoIndex = reserve();
     const info = [
@@ -319,7 +322,9 @@ export function writePdf(
         `/Producer ${literal("Markdown Exporter")}`,
         ...(metadata.author?.trim() ? [`/Author ${pdfTextString(metadata.author.trim())}`] : []),
         ...(metadata.subject?.trim() ? [`/Subject ${pdfTextString(metadata.subject.trim())}`] : []),
-        ...(metadata.keywords?.trim() ? [`/Keywords ${pdfTextString(metadata.keywords.trim())}`] : [])
+        ...(metadata.keywords?.trim()
+            ? [`/Keywords ${pdfTextString(metadata.keywords.trim())}`]
+            : [])
     ];
     put(infoIndex, `<< ${info.join(" ")} >>`);
 
@@ -681,15 +686,20 @@ function literal(text: string): string {
 
 /** PDF text strings use UTF-16BE when WinAnsi cannot preserve the metadata. */
 function pdfTextString(text: string): string {
-    if ([...text].every((character) => {
-        const code = character.codePointAt(0) ?? 0;
-        return code < 127 || (code >= 160 && code <= 255) || WIN_ANSI[character] !== undefined;
-    })) {
+    if (
+        [...text].every((character) => {
+            const code = character.codePointAt(0) ?? 0;
+            return code < 127 || (code >= 160 && code <= 255) || WIN_ANSI[character] !== undefined;
+        })
+    ) {
         return literal(text);
     }
     const words = [0xfeff];
     for (let index = 0; index < text.length; index += 1) words.push(text.charCodeAt(index));
-    return `<${words.map((word) => word.toString(16).padStart(4, "0")).join("").toUpperCase()}>`;
+    return `<${words
+        .map((word) => word.toString(16).padStart(4, "0"))
+        .join("")
+        .toUpperCase()}>`;
 }
 
 function byte(value: number): string {

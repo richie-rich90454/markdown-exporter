@@ -75,7 +75,9 @@ export async function encodeBookArchive(projectValue: BookProject): Promise<Uint
 }
 
 /** Decodes a `.mdbook` package in memory and enforces path and expansion limits before extraction. */
-export async function decodeBookArchive(input: Blob | ArrayBuffer | Uint8Array): Promise<BookProject> {
+export async function decodeBookArchive(
+    input: Blob | ArrayBuffer | Uint8Array
+): Promise<BookProject> {
     if (isOversizedBlob(input)) {
         throw new BookArchiveError("The book package exceeds the 50 MiB archive limit.");
     }
@@ -84,20 +86,27 @@ export async function decodeBookArchive(input: Blob | ArrayBuffer | Uint8Array):
         throw new BookArchiveError("The book package exceeds the 50 MiB archive limit.");
     }
     const entries = inspectCentralDirectory(archive);
-    if (entries.length > ENTRY_LIMIT) throw new BookArchiveError("The package contains too many files.");
+    if (entries.length > ENTRY_LIMIT)
+        throw new BookArchiveError("The package contains too many files.");
     let expandedTotal = 0;
     const paths = new Set<string>();
     for (const entry of entries) {
         assertArchivePath(entry.path);
         const pathKey = canonicalBookPath(entry.path);
-        if (paths.has(pathKey)) throw new BookArchiveError(`The package repeats ${entry.path} or a filesystem-equivalent path.`);
+        if (paths.has(pathKey))
+            throw new BookArchiveError(
+                `The package repeats ${entry.path} or a filesystem-equivalent path.`
+            );
         paths.add(pathKey);
-        if ((entry.flags & 1) !== 0) throw new BookArchiveError("Encrypted book packages are not supported.");
+        if ((entry.flags & 1) !== 0)
+            throw new BookArchiveError("Encrypted book packages are not supported.");
         if (isSymlink(entry.externalAttributes)) {
             throw new BookArchiveError("Book packages cannot contain symbolic links.");
         }
         if (entry.expandedSize > FILE_LIMIT) {
-            throw new BookArchiveError(`The package file ${entry.path} exceeds the 64 MiB file limit.`);
+            throw new BookArchiveError(
+                `The package file ${entry.path} exceeds the 64 MiB file limit.`
+            );
         }
         if (entry.path === "book.json" && entry.expandedSize > MANIFEST_LIMIT) {
             throw new BookArchiveError("The book manifest exceeds the 1 MiB limit.");
@@ -112,10 +121,13 @@ export async function decodeBookArchive(input: Blob | ArrayBuffer | Uint8Array):
     try {
         unzipped = unzipSync(archive);
     } catch (error) {
-        throw new BookArchiveError(describeError(error, "The book package is damaged or unsupported."));
+        throw new BookArchiveError(
+            describeError(error, "The book package is damaged or unsupported.")
+        );
     }
     const manifestBytes = unzipped["book.json"];
-    if (manifestBytes === undefined) throw new BookArchiveError("The package is missing book.json.");
+    if (manifestBytes === undefined)
+        throw new BookArchiveError("The package is missing book.json.");
     let manifestText: string;
     try {
         manifestText = new TextDecoder("utf-8", { fatal: true }).decode(manifestBytes);
@@ -128,7 +140,11 @@ export async function decodeBookArchive(input: Blob | ArrayBuffer | Uint8Array):
         assertArchivePath(path);
         if (isTextPath(path)) {
             try {
-                defineArchiveFile(files, path, new TextDecoder("utf-8", { fatal: true }).decode(data));
+                defineArchiveFile(
+                    files,
+                    path,
+                    new TextDecoder("utf-8", { fatal: true }).decode(data)
+                );
             } catch {
                 throw new BookArchiveError(`The package file ${path} is not valid UTF-8.`);
             }
@@ -140,13 +156,20 @@ export async function decodeBookArchive(input: Blob | ArrayBuffer | Uint8Array):
         const manifest = JSON.parse(manifestText) as unknown;
         return validateBookProject({ manifest, files });
     } catch (error) {
-        throw new BookArchiveError(describeError(error, "The book manifest or its files are invalid."));
+        throw new BookArchiveError(
+            describeError(error, "The book manifest or its files are invalid.")
+        );
     }
 }
 
 function isOversizedBlob(input: Blob | ArrayBuffer | Uint8Array): boolean {
-    return typeof input === "object" && input !== null && "size" in input &&
-        typeof input.size === "number" && input.size > ARCHIVE_LIMIT;
+    return (
+        typeof input === "object" &&
+        input !== null &&
+        "size" in input &&
+        typeof input.size === "number" &&
+        input.size > ARCHIVE_LIMIT
+    );
 }
 
 function inspectCentralDirectory(bytes: Uint8Array): ArchiveEntry[] {
@@ -181,7 +204,10 @@ function inspectCentralDirectory(bytes: Uint8Array): ArchiveEntry[] {
     const entries: ArchiveEntry[] = [];
     let offset = directoryOffset;
     for (let index = 0; index < totalEntries; index += 1) {
-        if (offset + 46 > directoryOffset + directorySize || view.getUint32(offset, true) !== 0x02014b50) {
+        if (
+            offset + 46 > directoryOffset + directorySize ||
+            view.getUint32(offset, true) !== 0x02014b50
+        ) {
             throw new BookArchiveError("The ZIP central directory is malformed.");
         }
         const flags = view.getUint16(offset + 8, true);
@@ -208,8 +234,13 @@ function inspectCentralDirectory(bytes: Uint8Array): ArchiveEntry[] {
             assertArchivePath(path.slice(0, -1));
         } else {
             assertArchivePath(path);
-            if (localHeaderOffset + 30 > directoryOffset || view.getUint32(localHeaderOffset, true) !== 0x04034b50) {
-                throw new BookArchiveError(`The package file ${path} has an invalid local ZIP header.`);
+            if (
+                localHeaderOffset + 30 > directoryOffset ||
+                view.getUint32(localHeaderOffset, true) !== 0x04034b50
+            ) {
+                throw new BookArchiveError(
+                    `The package file ${path} has an invalid local ZIP header.`
+                );
             }
             const localFlags = view.getUint16(localHeaderOffset + 6, true);
             const localCompressionMethod = view.getUint16(localHeaderOffset + 8, true);
@@ -223,15 +254,24 @@ function inspectCentralDirectory(bytes: Uint8Array): ArchiveEntry[] {
                 localNameStart + localNameLength > directoryOffset ||
                 dataStart + compressedSize > directoryOffset
             ) {
-                throw new BookArchiveError(`The package file ${path} has inconsistent ZIP metadata.`);
+                throw new BookArchiveError(
+                    `The package file ${path} has inconsistent ZIP metadata.`
+                );
             }
             let localPath: string;
             try {
-                localPath = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(localNameStart, localNameStart + localNameLength));
+                localPath = new TextDecoder("utf-8", { fatal: true }).decode(
+                    bytes.subarray(localNameStart, localNameStart + localNameLength)
+                );
             } catch {
-                throw new BookArchiveError("The package contains a file name that is not valid UTF-8.");
+                throw new BookArchiveError(
+                    "The package contains a file name that is not valid UTF-8."
+                );
             }
-            if (localPath !== path) throw new BookArchiveError(`The package file ${path} has mismatched local and central paths.`);
+            if (localPath !== path)
+                throw new BookArchiveError(
+                    `The package file ${path} has mismatched local and central paths.`
+                );
             entries.push({ path, compressedSize, expandedSize, flags, externalAttributes });
         }
         offset = recordEnd;
@@ -245,7 +285,9 @@ function inspectCentralDirectory(bytes: Uint8Array): ArchiveEntry[] {
 function assertArchivePath(path: string): void {
     // fflate's unzipSync stores entries in a plain object, where this one key would change its prototype.
     if (path === "__proto__") {
-        throw new BookArchiveError("The archive path __proto__ cannot be represented safely by the ZIP reader.");
+        throw new BookArchiveError(
+            "The archive path __proto__ cannot be represented safely by the ZIP reader."
+        );
     }
     try {
         assertSafeBookPath(path);
@@ -255,7 +297,12 @@ function assertArchivePath(path: string): void {
 }
 
 function defineArchiveFile<T>(files: Record<string, T>, path: string, data: T): void {
-    Object.defineProperty(files, path, { value: data, enumerable: true, configurable: true, writable: true });
+    Object.defineProperty(files, path, {
+        value: data,
+        enumerable: true,
+        configurable: true,
+        writable: true
+    });
 }
 
 function isSymlink(attributes: number): boolean {

@@ -20,25 +20,46 @@ The manifest stores metadata and the display order. Paths use `/` separators and
 
 ```json
 {
-  "formatVersion": 1,
-  "metadata": {
-    "title": "A Local Book",
-    "subtitle": "A short subtitle",
-    "authors": ["A. Writer"],
-    "language": "en",
-    "publisher": "Local Press",
-    "isbn": "",
-    "description": "A book written in Markdown.",
-    "coverPath": "assets/cover.png"
-  },
-  "entries": [
-    { "id": "front-matter-1", "role": "front-matter", "path": "front-matter/preface.md", "title": "Preface" },
-    { "id": "chapter-1", "role": "chapter", "path": "chapters/01-opening.md", "title": "Opening" },
-    { "id": "chapter-2", "role": "chapter", "path": "chapters/02-next-steps.md", "title": "Next steps" },
-    { "id": "back-matter-1", "role": "back-matter", "path": "back-matter/references.md", "title": "References" }
-  ],
-  "bibliographyPath": "references/library.bib",
-  "citationStylePath": "styles/custom.csl"
+    "formatVersion": 1,
+    "metadata": {
+        "title": "A Local Book",
+        "subtitle": "A short subtitle",
+        "authors": ["A. Writer"],
+        "language": "en",
+        "publisher": "Local Press",
+        "isbn": "",
+        "description": "A book written in Markdown.",
+        "coverPath": "assets/cover.png"
+    },
+    "entries": [
+        {
+            "id": "front-matter-1",
+            "role": "front-matter",
+            "path": "front-matter/preface.md",
+            "title": "Preface"
+        },
+        {
+            "id": "chapter-1",
+            "role": "chapter",
+            "path": "chapters/01-opening.md",
+            "title": "Opening"
+        },
+        {
+            "id": "chapter-2",
+            "role": "chapter",
+            "path": "chapters/02-next-steps.md",
+            "title": "Next steps"
+        },
+        {
+            "id": "back-matter-1",
+            "role": "back-matter",
+            "path": "back-matter/references.md",
+            "title": "References"
+        }
+    ],
+    "bibliographyPath": "references/library.bib",
+    "citationStyleId": "apa",
+    "citationStylePath": "styles/custom.csl"
 }
 ```
 
@@ -52,7 +73,7 @@ Front matter in a chapter remains in that Markdown file. The renderer removes YA
 
 Chapter Markdown is UTF-8. Relative image paths resolve from the Markdown file's folder. Shared images can live in `assets/` and be referenced with an appropriate relative path. Unreferenced project files remain in the project when saved.
 
-BibTeX entries can be cited with markers such as `[@smith2020]` and `[@smith2020; @lee2022]`. An imported local CSL style takes precedence over the built-in APA style. Unknown cite keys remain visible as written. A manually authored references section and footnotes remain ordinary Markdown.
+BibTeX entries can be edited in the manuscript tools or imported as a `.bib` file. Cite them with markers such as `[@smith2020]` and `[@smith2020; @lee2022]`. APA 7 is the default bundled style; Harvard and Vancouver are also bundled and selectable. An imported local CSL style takes precedence until a bundled style is selected. Unknown cite keys remain visible as written. A manually authored references section and footnotes remain ordinary Markdown.
 
 ## Saving and recovery
 

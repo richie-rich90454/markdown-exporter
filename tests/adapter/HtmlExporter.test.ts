@@ -133,10 +133,19 @@ describe("HtmlExporter", () => {
             ...base,
             manifest: {
                 ...base.manifest,
-                metadata: { ...base.manifest.metadata, subtitle: "Short subtitle", authors: ["A. Writer"] },
+                metadata: {
+                    ...base.manifest.metadata,
+                    subtitle: "Short subtitle",
+                    authors: ["A. Writer"]
+                },
                 entries: [
                     { ...base.manifest.entries[0]!, title: "Opening" },
-                    { id: "chapter-2", role: "chapter" as const, path: "chapters/chapter-2.md", title: "Next" }
+                    {
+                        id: "chapter-2",
+                        role: "chapter" as const,
+                        path: "chapters/chapter-2.md",
+                        title: "Next"
+                    }
                 ]
             },
             files: { ...base.files, "chapters/chapter-2.md": "Second chapter body." }
@@ -164,6 +173,6 @@ describe("HtmlExporter", () => {
         expect(html).toContain("Second chapter body.");
         expect(html).toContain("A. Writer");
         expect(html).toContain("size:152.4mm 228.6mm");
-        expect(html).toContain("href=\"#section-2\"");
+        expect(html).toContain('href="#section-2"');
     });
 });

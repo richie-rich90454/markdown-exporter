@@ -130,7 +130,12 @@ describe("PdfExporter", () => {
                 },
                 entries: [
                     { ...base.manifest.entries[0]!, title: "First chapter" },
-                    { id: "chapter-2", role: "chapter" as const, path: "chapters/chapter-2.md", title: "Second chapter" }
+                    {
+                        id: "chapter-2",
+                        role: "chapter" as const,
+                        path: "chapters/chapter-2.md",
+                        title: "Second chapter"
+                    }
                 ]
             },
             files: { ...base.files, "chapters/chapter-2.md": "Second chapter body." }
@@ -153,7 +158,9 @@ describe("PdfExporter", () => {
             }
         );
         await new PdfExporter(saver).export(exportRequest);
-        const bytes = new TextDecoder("latin1").decode(new Uint8Array(await saver.blobs[0]!.blob.arrayBuffer()));
+        const bytes = new TextDecoder("latin1").decode(
+            new Uint8Array(await saver.blobs[0]!.blob.arrayBuffer())
+        );
         expect(bytes).toContain("A subtitle");
         expect(bytes).toContain("/Lang (zh-CN)");
         expect(bytes).toContain("/Author (A. Writer)");
@@ -170,7 +177,9 @@ describe("PdfExporter", () => {
     });
 
     it("uses custom trim dimensions for PDF page geometry", () => {
-        expect(pageWidthPt({ ...SETUP, pageSize: "custom", customWidthMm: 160 })).toBeCloseTo(160 * 72 / 25.4);
+        expect(pageWidthPt({ ...SETUP, pageSize: "custom", customWidthMm: 160 })).toBeCloseTo(
+            (160 * 72) / 25.4
+        );
     });
 
     it("uses the 6 by 9 inch book preset for PDF page geometry", async () => {
@@ -185,7 +194,9 @@ describe("PdfExporter", () => {
         );
         const saver = new MemorySaver();
         await new PdfExporter(saver).export(exportRequest);
-        const bytes = new TextDecoder("latin1").decode(new Uint8Array(await saver.blobs[0]!.blob.arrayBuffer()));
+        const bytes = new TextDecoder("latin1").decode(
+            new Uint8Array(await saver.blobs[0]!.blob.arrayBuffer())
+        );
         expect(bytes).toContain("/MediaBox [0 0 432 648]");
     });
 

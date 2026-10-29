@@ -38,7 +38,6 @@ const sanitizeSchema: SanitizeSchema = {
     }
 };
 
-
 function createProcessor(
     mathRemark?: Pluggable,
     katexPlugin?: Pluggable,
@@ -139,7 +138,12 @@ export class UnifiedMarkdownRenderer implements MarkdownRenderer {
         const usesChemistry = usesMath && /\\(?:ce|pu)\s*\{/.test(currencySafeSource);
         const usesRawHtml = hasRawHtml(source);
         const usesHighlight = hasHighlightedCode(source);
-        const processor = await this.getProcessor(usesMath, usesChemistry, usesRawHtml, usesHighlight);
+        const processor = await this.getProcessor(
+            usesMath,
+            usesChemistry,
+            usesRawHtml,
+            usesHighlight
+        );
         const texNormalizedSource = usesMath
             ? normalizePandocTexSource(currencySafeSource)
             : currencySafeSource;
@@ -206,14 +210,13 @@ export class UnifiedMarkdownRenderer implements MarkdownRenderer {
 function normalizeSpacedPipeTables(source: string): string {
     const lines = source.match(/[^\r\n]*(?:\r\n|\n|\r|$)/g)?.filter(Boolean) ?? [];
     const content = (line: string): string => line.replace(/(?:\r\n|\n|\r)$/, "");
-    const pipeCount = (line: string): number =>
-        Array.from(line.matchAll(/(?<!\\)\|/g)).length;
+    const pipeCount = (line: string): number => Array.from(line.matchAll(/(?<!\\)\|/g)).length;
     const isPipeRow = (line: string): boolean => pipeCount(line) > 0;
     const isDelimiter = (line: string): boolean =>
         /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
     const output: string[] = [];
 
-    for (let index = 0; index < lines.length; ) {
+    for (let index = 0; index < lines.length;) {
         const header = content(lines[index] ?? "");
         if (!isPipeRow(header)) {
             output.push(lines[index] ?? "");
@@ -222,7 +225,10 @@ function normalizeSpacedPipeTables(source: string): string {
         }
 
         let delimiterIndex = index + 1;
-        while (delimiterIndex < lines.length && content(lines[delimiterIndex] ?? "").trim() === "") {
+        while (
+            delimiterIndex < lines.length &&
+            content(lines[delimiterIndex] ?? "").trim() === ""
+        ) {
             delimiterIndex += 1;
         }
         const delimiter = content(lines[delimiterIndex] ?? "");

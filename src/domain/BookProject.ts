@@ -1,6 +1,7 @@
 export const BOOK_FORMAT_VERSION = 1 as const;
 
 export type BookEntryRole = "front-matter" | "chapter" | "back-matter";
+export type BuiltInCitationStyleId = "apa" | "harvard1" | "vancouver";
 
 export interface BookMetadata {
     readonly title: string;
@@ -26,6 +27,7 @@ export interface BookManifest {
     readonly entries: readonly BookEntry[];
     readonly bibliographyPath?: string;
     readonly citationStylePath?: string;
+    readonly citationStyleId?: BuiltInCitationStyleId;
 }
 
 export type BookFileData = string | Uint8Array;
@@ -35,7 +37,10 @@ export interface BookProject {
     readonly files: Readonly<Record<string, BookFileData>>;
 }
 
-export function createSingleChapterBook(source: string, title = "Untitled manuscript"): BookProject {
+export function createSingleChapterBook(
+    source: string,
+    title = "Untitled manuscript"
+): BookProject {
     const chapterPath = "chapters/chapter-1.md";
     const entry: BookEntry = {
         id: "chapter-1",
@@ -44,10 +49,10 @@ export function createSingleChapterBook(source: string, title = "Untitled manusc
         title: titleFromSource(source) || title
     };
     const manifest: BookManifest = {
-            formatVersion: BOOK_FORMAT_VERSION,
-            metadata: { title, authors: [], language: "en" },
-            entries: [entry]
-        };
+        formatVersion: BOOK_FORMAT_VERSION,
+        metadata: { title, authors: [], language: "en" },
+        entries: [entry]
+    };
     return {
         manifest,
         files: {
@@ -96,10 +101,14 @@ export function validateBookProject(value: unknown): BookProject {
         const pathKey = canonicalBookPath(path);
         const previousPath = filePathKeys.get(pathKey);
         if (previousPath !== undefined) {
-            throw new Error(`The book contains paths that collide on common filesystems: ${previousPath} and ${path}.`);
+            throw new Error(
+                `The book contains paths that collide on common filesystems: ${previousPath} and ${path}.`
+            );
         }
         if (directoryPathKeys.has(pathKey)) {
-            throw new Error(`The book path ${path} conflicts with a folder containing another project file.`);
+            throw new Error(
+                `The book path ${path} conflicts with a folder containing another project file.`
+            );
         }
         const pathParts = pathKey.split("/");
         for (let index = 1; index < pathParts.length; index += 1) {
@@ -132,10 +141,12 @@ export function validateBookProject(value: unknown): BookProject {
         if (entry.id.trim().length === 0 || entry.title.trim().length === 0) {
             throw new Error(`The book entry at position ${index + 1} needs an id and title.`);
         }
-        if (ids.has(entry.id)) throw new Error(`The book contains a duplicate entry id: ${entry.id}.`);
+        if (ids.has(entry.id))
+            throw new Error(`The book contains a duplicate entry id: ${entry.id}.`);
         ids.add(entry.id);
         assertSafeBookPath(entry.path);
-        if (entry.path === "book.json") throw new Error("Book entries cannot replace the manifest.");
+        if (entry.path === "book.json")
+            throw new Error("Book entries cannot replace the manifest.");
         const entryPathKey = canonicalBookPath(entry.path);
         if (entryPaths.has(entryPathKey)) {
             throw new Error(`The book uses the same Markdown file more than once: ${entry.path}.`);
@@ -152,9 +163,11 @@ export function validateBookProject(value: unknown): BookProject {
 
     const bibliographyPath = optionalSafePath(manifest.bibliographyPath);
     const citationStylePath = optionalSafePath(manifest.citationStylePath);
+    const citationStyleId = optionalCitationStyleId(manifest.citationStyleId);
     const coverPath = optionalSafePath(metadata.coverPath);
     const referencedPaths = new Map<string, string>();
-    for (const entry of entries) referencedPaths.set(canonicalBookPath(entry.path), `section “${entry.title}”`);
+    for (const entry of entries)
+        referencedPaths.set(canonicalBookPath(entry.path), `section “${entry.title}”`);
     for (const [label, path] of [
         ["cover", coverPath],
         ["bibliography", bibliographyPath],
@@ -180,13 +193,12 @@ export function validateBookProject(value: unknown): BookProject {
             ...(typeof metadata.description === "string"
                 ? { description: metadata.description }
                 : {}),
-            ...(coverPath !== undefined
-                ? { coverPath }
-                : {})
+            ...(coverPath !== undefined ? { coverPath } : {})
         },
         entries,
         ...(bibliographyPath === undefined ? {} : { bibliographyPath }),
-        ...(citationStylePath === undefined ? {} : { citationStylePath })
+        ...(citationStylePath === undefined ? {} : { citationStylePath }),
+        ...(citationStyleId === undefined ? {} : { citationStyleId })
     };
 
     if (
@@ -235,7 +247,8 @@ export function updateBookChapter(
 export function titleFromSource(source: string): string {
     for (const line of source.split(/\r?\n/)) {
         const heading = /^\s{0,3}#\s+(.+?)\s*#*\s*$/.exec(line);
-        if (heading?.[1] !== undefined) return heading[1].replace(/\[*\](?:\([^)]*\))?/g, "").trim();
+        if (heading?.[1] !== undefined)
+            return heading[1].replace(/\[*\](?:\([^)]*\))?/g, "").trim();
     }
     return "";
 }
@@ -247,15 +260,18 @@ export function assertSafeBookPath(path: string): void {
         path.includes("\\") ||
         path.startsWith("/") ||
         /^[a-zA-Z]:/.test(path) ||
-        path.split("/").some((part) =>
-            part === "" ||
-            part === "." ||
-            part === ".." ||
-            /[<>:"|?*]/.test(part) ||
-            hasControlCharacter(part) ||
-            /[. ]$/.test(part) ||
-            /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?$/i.test(part)
-        )
+        path
+            .split("/")
+            .some(
+                (part) =>
+                    part === "" ||
+                    part === "." ||
+                    part === ".." ||
+                    /[<>:"|?*]/.test(part) ||
+                    hasControlCharacter(part) ||
+                    /[. ]$/.test(part) ||
+                    /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?$/i.test(part)
+            )
     ) {
         throw new Error(`Unsafe path in book project: ${path || "(empty)"}.`);
     }
@@ -279,7 +295,12 @@ export function isBookManifestPath(path: string): boolean {
 
 function defineFile(files: Record<string, BookFileData>, path: string, data: BookFileData): void {
     // Define an own data property so names such as "__proto__" cannot mutate the object prototype.
-    Object.defineProperty(files, path, { value: data, enumerable: true, configurable: true, writable: true });
+    Object.defineProperty(files, path, {
+        value: data,
+        enumerable: true,
+        configurable: true,
+        writable: true
+    });
 }
 
 function assertAndReturnSafePath(path: string): string {
@@ -291,6 +312,12 @@ function optionalSafePath(path: unknown): string | undefined {
     if (path === undefined) return undefined;
     if (typeof path !== "string") throw new Error("A book file path must be text.");
     return assertAndReturnSafePath(path);
+}
+
+function optionalCitationStyleId(value: unknown): BuiltInCitationStyleId | undefined {
+    if (value === undefined) return undefined;
+    if (value === "apa" || value === "harvard1" || value === "vancouver") return value;
+    throw new Error("The book citation style must be APA, Harvard, or Vancouver.");
 }
 
 function isEntryRole(value: unknown): value is BookEntryRole {

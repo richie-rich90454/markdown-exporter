@@ -20,7 +20,10 @@ export class BrowserBookProjectFiles implements BookProjectFiles {
         return readBookFolder(root);
     }
 
-    writeFolder(root: Parameters<BookProjectFiles["writeFolder"]>[0], project: Parameters<BookProjectFiles["writeFolder"]>[1]) {
+    writeFolder(
+        root: Parameters<BookProjectFiles["writeFolder"]>[0],
+        project: Parameters<BookProjectFiles["writeFolder"]>[1]
+    ) {
         return writeBookFolder(root, project);
     }
 }
