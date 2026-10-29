@@ -21,7 +21,8 @@ export class ExportController {
         content: Node,
         pageSetup: PageSetup,
         bookProject?: BookProject,
-        renderSource?: (source: string) => Promise<Node>
+        renderSource?: (source: string) => Promise<Node>,
+        isBookProject: boolean = bookProject !== undefined
     ): Promise<ExportResult> {
         const exporter = this.registry.lookup(format);
         if (exporter === undefined) {
@@ -31,13 +32,14 @@ export class ExportController {
         const request = new ExportRequest(
             format,
             rendered,
-            bookProject !== undefined && bookProject.manifest.entries.length > 1
+            bookProject !== undefined && isBookProject
                 ? bookProject.manifest.metadata.title
                 : rendered.title || "",
             content,
             pageSetup,
             bookProject,
-            renderSource
+            renderSource,
+            isBookProject
         );
         try {
             return await exporter.export(request);

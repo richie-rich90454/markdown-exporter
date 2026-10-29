@@ -6,7 +6,15 @@ import { ExportResults } from "../../domain/ExportResult";
 import type { DocumentExporter } from "../../port/DocumentExporter";
 import type { FileSaver } from "../../port/FileSaver";
 import { pageDimensions } from "../../domain/PageSetup";
-import { createBookContentsPage, createBookTitlePage, renderBookSections, resolveBookImageReferences, serializeContent } from "./BookExportContent";
+import {
+    createBookContentsPage,
+    createBookTitlePage,
+    publicationSlug,
+    publicationTitle,
+    renderBookSections,
+    resolveBookImageReferences,
+    serializeContent
+} from "./BookExportContent";
 import { addCitationReferences } from "./CitationPublisher";
 
 export class DocxExporter implements DocumentExporter {
@@ -31,11 +39,37 @@ export class DocxExporter implements DocumentExporter {
         ]);
         const warnings: string[] = [];
         const documentChildren = [];
-        const isBook = (project?.manifest.entries.length ?? 0) > 1;
+        const isBook = request.isBookProject;
+        const metadata = project?.manifest.metadata;
+        const title = publicationTitle(project, request.title, isBook);
+        const dimensions = pageDimensions(request.pageSetup);
+        const fontFamily = request.pageSetup.fontFamily === "sans"
+            ? "Noto Sans"
+            : request.pageSetup.fontFamily === "mono"
+                ? "Consolas"
+                : "Georgia";
+        const codeFontFamily = "Consolas";
+        const lineTwips = Math.round(request.pageSetup.fontSizePt * 20 * request.pageSetup.lineHeight);
+        const maxImageWidth = Math.max(120, ((dimensions.widthMm - request.pageSetup.marginMm * 2) * 96) / 25.4);
+        const htmlStylesheet = [
+            `p,li,td,th,blockquote{font-family:"${fontFamily}";font-size:${request.pageSetup.fontSizePt}pt;line-height:${request.pageSetup.lineHeight}}`,
+            `h1,h2,h3,h4,h5,h6{font-family:"${fontFamily}";line-height:1.2}`,
+            `pre{font-family:"${codeFontFamily}";font-size:${request.pageSetup.fontSizePt * 0.9}pt;background:#f6f7f9}`,
+            `code{font-family:"${codeFontFamily}";font-size:.9em}`
+        ].join("\n");
+        const diagramImages = new Map<string, { readonly data: string; readonly fallback?: Uint8Array }>();
+        const htmlOptions = {
+            notes: "footnotes" as const,
+            styleMap: { table: "TableGrid", pre: "SourceCode", code: "InlineCode" },
+            stylesheet: htmlStylesheet,
+            maxImageWidth,
+            images: (source: string) => diagramImages.get(source),
+            onWarning: (warning: { readonly message: string }) => warnings.push(warning.message)
+        };
         if (isBook) {
-            documentChildren.push(...htmlToContent(serializeContent(createBookTitlePage(project, request.title))));
+            documentChildren.push(...htmlToContent(serializeContent(createBookTitlePage(project, title)), htmlOptions));
             documentChildren.push(new Paragraph({ children: [new PageBreak()] }));
-            documentChildren.push(...htmlToContent(serializeContent(createBookContentsPage(sections))));
+            documentChildren.push(...htmlToContent(serializeContent(createBookContentsPage(sections)), htmlOptions));
             documentChildren.push(new Paragraph({ children: [new PageBreak()] }));
         }
         for (const [index, section] of sections.entries()) {
@@ -43,20 +77,13 @@ export class DocxExporter implements DocumentExporter {
             resolveBookImageReferences(content, project, section.entry?.path);
             await embedProjectImages(content, project, section.entry?.path ?? "");
             if (index > 0 && section.entry?.role !== "front-matter") documentChildren.push(new Paragraph({ children: [new PageBreak()] }));
-            preserveDiagramAltText(content);
+            await prepareDiagramImages(content, diagramImages, warnings);
             documentChildren.push(...htmlToContent(
                 serializeContent(content),
-                {
-                    notes: "footnotes",
-                    styleMap: { table: "TableGrid", pre: "SourceCode", code: "InlineCode" },
-                    onWarning: (warning) => warnings.push(warning.message)
-                }
+                htmlOptions
             ));
         }
 
-        const metadata = project?.manifest.metadata;
-        const title = publicationTitle(project, request.title);
-        const dimensions = pageDimensions(request.pageSetup);
         const toTwips = (millimeters: number): number => Math.round((millimeters * 1440) / 25.4);
         const marginTwips = toTwips(request.pageSetup.marginMm);
         const header = isBook
@@ -72,9 +99,34 @@ export class DocxExporter implements DocumentExporter {
         const document = new Document({
             creator: metadata?.authors.join(", ") || "Markdown Exporter",
             title,
-            ...(metadata?.description === undefined ? {} : { subject: metadata.description }),
+            ...(metadata?.description === undefined ? {} : { subject: metadata.description, description: metadata.description }),
             ...(metadata?.isbn === undefined ? {} : { keywords: `ISBN ${metadata.isbn}` }),
-            ...(warnings.length === 0 ? {} : { description: warnings.join("\n") }),
+            ...(warnings.length === 0 ? {} : { customProperties: [{ name: "Markdown export warnings", value: warnings.join("\n").slice(0, 2000) }] }),
+            styles: {
+                default: {
+                    document: {
+                        run: {
+                            font: fontFamily,
+                            size: Math.round(request.pageSetup.fontSizePt * 2),
+                            language: { value: metadata?.language || "en" }
+                        },
+                        paragraph: { spacing: { line: lineTwips, lineRule: "atLeast" } }
+                    }
+                },
+                paragraphStyles: [{
+                    id: "SourceCode",
+                    name: "Source Code",
+                    basedOn: "Normal",
+                    run: { font: codeFontFamily, size: Math.round(request.pageSetup.fontSizePt * 1.8), color: "303846" },
+                    paragraph: { shading: { fill: "F6F7F9" }, spacing: { before: 80, after: 80, line: lineTwips, lineRule: "atLeast" } }
+                }],
+                characterStyles: [{
+                    id: "InlineCode",
+                    name: "Inline Code",
+                    run: { font: codeFontFamily, size: Math.round(request.pageSetup.fontSizePt * 1.8), color: "303846" }
+                }]
+            },
+            theme: { fonts: { body: fontFamily, headings: fontFamily } },
             sections: [{
                 ...(header === undefined ? {} : {
                     headers: { default: header, first: new Header({ children: [] }) }
@@ -104,24 +156,76 @@ export class DocxExporter implements DocumentExporter {
             }]
         });
         const blob = await Packer.toBlob(document);
-        this.fileSaver.saveBlob(blob, `${slug(title)}.docx`);
+        this.fileSaver.saveBlob(blob, `${publicationSlug(title)}.docx`);
         return ExportResults.success(this.supportedFormat);
     }
 }
 
-function publicationTitle(project: BookProject | undefined, documentTitle: string): string {
-    const metadataTitle = project?.manifest.metadata.title;
-    const isBook = (project?.manifest.entries.length ?? 0) > 1;
-    return (isBook ? metadataTitle : undefined) || documentTitle || metadataTitle || "Untitled manuscript";
+async function prepareDiagramImages(
+    content: Node,
+    images: Map<string, { readonly data: string; readonly fallback?: Uint8Array }>,
+    warnings: string[]
+): Promise<void> {
+    if (!(content instanceof Element || content instanceof DocumentFragment)) return;
+    for (const [index, svg] of Array.from(content.querySelectorAll<SVGSVGElement>("svg")).entries()) {
+        const source = new XMLSerializer().serializeToString(svg);
+        const dataUrl = `data:image/svg+xml;base64,${encodeBase64(new TextEncoder().encode(source))}`;
+        const fallback = await rasterizeSvg(source);
+        images.set(dataUrl, fallback === null ? { data: dataUrl } : { data: dataUrl, fallback });
+
+        const image = document.createElement("img");
+        image.src = dataUrl;
+        const altText = diagramAltText(svg);
+        image.alt = altText || "Diagram; see surrounding text for an explanation.";
+        image.className = "markdown-diagram";
+        if (altText.length === 0) warnings.push(`Diagram ${index + 1} has no accessible title or description; its surrounding text must explain it.`);
+        if (fallback === null) warnings.push(`Diagram ${index + 1} has no PNG fallback; older Word versions may not display its SVG.`);
+        svg.replaceWith(image);
+    }
 }
 
-function preserveDiagramAltText(content: Node): void {
-    if (!(content instanceof Element || content instanceof DocumentFragment)) return;
-    for (const svg of Array.from(content.querySelectorAll<SVGSVGElement>("svg"))) {
-        const fallback = document.createElement("p");
-        fallback.textContent = `Diagram: ${svg.getAttribute("aria-label") ?? "illustration"}`;
-        svg.replaceWith(fallback);
+function diagramAltText(svg: SVGSVGElement): string {
+    const labelled = svg.getAttribute("aria-label")?.trim();
+    if (labelled) return labelled;
+    const title = svg.querySelector("title")?.textContent?.trim();
+    if (title) return title;
+    const description = svg.querySelector("desc")?.textContent?.trim();
+    return description ?? "";
+}
+
+async function rasterizeSvg(source: string): Promise<Uint8Array | null> {
+    if (typeof URL.createObjectURL !== "function") return null;
+    const url = URL.createObjectURL(new Blob([source], { type: "image/svg+xml;charset=utf-8" }));
+    try {
+        const image = new Image();
+        image.src = url;
+        await image.decode();
+        const viewBox = imageViewBox(source);
+        const sourceWidth = viewBox?.width || image.naturalWidth || 1200;
+        const sourceHeight = viewBox?.height || image.naturalHeight || 800;
+        const scale = Math.min(1.5, 2400 / Math.max(sourceWidth, sourceHeight));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+        canvas.height = Math.max(1, Math.round(sourceHeight * scale));
+        const context = canvas.getContext("2d");
+        if (context === null) return null;
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+        return blob === null ? null : new Uint8Array(await blob.arrayBuffer());
+    } catch {
+        return null;
+    } finally {
+        URL.revokeObjectURL(url);
     }
+}
+
+function imageViewBox(source: string): { readonly width: number; readonly height: number } | null {
+    const viewBox = /\bviewBox\s*=\s*(["'])([^"']+)\1/i.exec(source)?.[2];
+    const values = viewBox?.trim().split(/[\s,]+/).map(Number);
+    if (values?.length !== 4 || !Number.isFinite(values[2]) || !Number.isFinite(values[3])) return null;
+    return { width: Math.max(1, values[2] ?? 1), height: Math.max(1, values[3] ?? 1) };
 }
 
 async function embedProjectImages(content: Node, project: BookProject | undefined, chapterPath: string): Promise<void> {
@@ -190,9 +294,4 @@ function encodeBase64(bytes: Uint8Array): string {
     let binary = "";
     for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
     return btoa(binary);
-}
-
-function slug(title: string): string {
-    const value = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-    return value.length > 0 ? value : "book";
 }

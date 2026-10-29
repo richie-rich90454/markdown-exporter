@@ -7,6 +7,7 @@ import type { PageSetup } from "../../src/domain/PageSetup";
 import type { ExportRequest } from "../../src/domain/ExportRequest";
 import type { ExportResult } from "../../src/domain/ExportResult";
 import { ExportResults } from "../../src/domain/ExportResult";
+import { createSingleChapterBook } from "../../src/domain/BookProject";
 import { RenderedDocument } from "../../src/domain/RenderedDocument";
 import type { DocumentExporter } from "../../src/port/DocumentExporter";
 import type { ExporterRegistry } from "../../src/port/ExporterRegistry";
@@ -100,5 +101,32 @@ describe("ExportController", () => {
         expect(result).toEqual({ kind: "success", format: ExportFormat.PDF });
         expect(requests[0]?.title).toBe("Report");
         expect(requests[0]?.pageSetup).toBe(SETUP);
+    });
+
+    it("keeps one-chapter books distinct from single Markdown documents", async () => {
+        const requests: ExportRequest[] = [];
+        const registry: ExporterRegistry = {
+            register: () => undefined,
+            lookup: () => ({
+                supportedFormat: ExportFormat.HTML,
+                export: (payload) => {
+                    requests.push(payload);
+                    return Promise.resolve(ExportResults.success(ExportFormat.HTML));
+                }
+            }),
+            listAvailableFormats: () => [ExportFormat.HTML]
+        };
+        const controller = new ExportController(registry);
+        const project = createSingleChapterBook("# Chapter heading", "Publication title");
+        const document = rendered("Chapter heading");
+        const renderSource = () => Promise.resolve(document.content);
+
+        await controller.export(ExportFormat.HTML, document, document.content, SETUP, project, renderSource, false);
+        await controller.export(ExportFormat.HTML, document, document.content, SETUP, project, renderSource, true);
+
+        expect(requests[0]?.isBookProject).toBe(false);
+        expect(requests[0]?.title).toBe("Chapter heading");
+        expect(requests[1]?.isBookProject).toBe(true);
+        expect(requests[1]?.title).toBe("Publication title");
     });
 });

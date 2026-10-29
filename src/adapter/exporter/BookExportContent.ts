@@ -8,6 +8,31 @@ export interface RenderedBookSection {
     readonly content: Node;
 }
 
+/** Resolve a single publication title consistently across every export format. */
+export function publicationTitle(
+    project: BookProject | undefined,
+    documentTitle: string,
+    isBookProject = project !== undefined
+): string {
+    const metadataTitle = project?.manifest.metadata.title?.trim();
+    const requestedTitle = documentTitle.trim();
+    if (isBookProject) return metadataTitle || requestedTitle || "Untitled manuscript";
+    return requestedTitle || "document";
+}
+
+/** Keep useful Unicode letters in filenames while removing path/control characters. */
+export function publicationSlug(title: string, fallback = "document"): string {
+    const value = title
+        .normalize("NFKD")
+        .replace(/\p{M}/gu, "")
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}]+/gu, "-")
+        .replace(/^-+|-+$/g, "");
+    const shortened = Array.from(value).slice(0, 120).join("");
+    const windowsReservedName = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(shortened);
+    return shortened.length === 0 ? fallback : windowsReservedName ? `_${shortened}` : shortened;
+}
+
 /** Render every ordered manuscript entry with the same renderer used by preview. */
 export async function renderBookSections(request: ExportRequest): Promise<RenderedBookSection[]> {
     const project = request.bookProject;
@@ -15,12 +40,13 @@ export async function renderBookSections(request: ExportRequest): Promise<Render
     if (project === undefined || entries.length === 0) {
         return [{ entry: undefined, title: request.title || "Untitled manuscript", anchorId: "", content: request.content.cloneNode(true) }];
     }
-    if (entries.length > 1 && request.renderSource === undefined) {
+    if (request.isBookProject && request.renderSource === undefined) {
         throw new Error("The book cannot be exported because its Markdown renderer is unavailable.");
     }
 
     const sections: RenderedBookSection[] = [];
-    for (const entry of entries) {
+    const usedAnchorIds = new Set<string>();
+    for (const [index, entry] of entries.entries()) {
         const source = project.files[entry.path];
         if (typeof source !== "string") {
             throw new Error(`The Markdown file for “${entry.title}” is missing.`);
@@ -28,11 +54,16 @@ export async function renderBookSections(request: ExportRequest): Promise<Render
         const rendered = request.renderSource === undefined
             ? request.content.cloneNode(true)
             : await request.renderSource(source);
+        const anchorId = request.isBookProject ? uniqueAnchorId(entry.id, index + 1, usedAnchorIds) : "";
+        const content = request.isBookProject
+            ? withSectionHeading(rendered, entry.title, anchorId)
+            : rendered;
+        if (request.isBookProject) namespaceSectionIds(content, anchorId);
         sections.push({
             entry,
             title: entry.title,
-            anchorId: chapterAnchorId(entry.id),
-            content: entries.length > 1 ? withSectionHeading(rendered, entry.title, chapterAnchorId(entry.id)) : rendered
+            anchorId,
+            content
         });
     }
     return sections;
@@ -105,10 +136,17 @@ export function createBookContentsPage(sections: readonly RenderedBookSection[])
     const heading = document.createElement("h1");
     heading.textContent = "Contents";
     const list = document.createElement("ol");
-    for (const section of sections) {
+    for (const [index, section] of sections.entries()) {
         const item = document.createElement("li");
         const link = document.createElement("a");
-        link.href = `#${section.anchorId}`;
+        const anchorId = section.anchorId || `book-section-${index + 1}`;
+        if (section.anchorId.length === 0) {
+            const heading = (section.content instanceof Element || section.content instanceof DocumentFragment)
+                ? section.content.querySelector<HTMLElement>("h1,h2,h3,h4,h5,h6")
+                : null;
+            if (heading !== null) heading.id = anchorId;
+        }
+        link.href = `#${anchorId}`;
         link.textContent = section.title;
         item.append(link);
         list.append(item);
@@ -129,6 +167,67 @@ export function serializeContent(content: Node): string {
 export function chapterAnchorId(entryId: string): string {
     const id = entryId.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
     return `book-chapter-${id || "untitled"}`;
+}
+
+function uniqueAnchorId(entryId: string, index: number, used: Set<string>): string {
+    const base = chapterAnchorId(entryId);
+    let anchorId = base;
+    let suffix = 2;
+    while (used.has(anchorId)) anchorId = `${base}-${suffix++}`;
+    used.add(anchorId);
+    return anchorId || `book-section-${index}`;
+}
+
+/** Namespace in-document IDs so chapters can be combined into one HTML/PDF/DOCX document safely. */
+function namespaceSectionIds(content: Node, sectionId: string): void {
+    if (!(content instanceof Element || content instanceof DocumentFragment)) return;
+    const elements = [
+        ...(content instanceof Element ? [content] : []),
+        ...Array.from(content.querySelectorAll<Element>("*"))
+    ];
+    const ids = new Map<string, string>();
+    const used = new Set<string>();
+    for (const element of elements) {
+        const original = element.getAttribute("id");
+        if (original === null || original.length === 0) continue;
+        if (original === sectionId) {
+            ids.set(original, original);
+            used.add(original);
+            continue;
+        }
+        const safeSuffix = original.replace(/[^\p{L}\p{N}_.:-]+/gu, "-") || "id";
+        const base = `${sectionId}-${safeSuffix}`;
+        let namespaced = base;
+        let suffix = 2;
+        while (used.has(namespaced)) namespaced = `${base}-${suffix++}`;
+        used.add(namespaced);
+        if (!ids.has(original)) ids.set(original, namespaced);
+        element.setAttribute("id", namespaced);
+    }
+
+    for (const element of elements) {
+        for (const attribute of ["href", "xlink:href"]) {
+            const value = element.getAttribute(attribute);
+            if (value === null || !value.startsWith("#")) continue;
+            const fragment = decodeFragment(value.slice(1));
+            const namespaced = ids.get(fragment);
+            if (namespaced !== undefined) element.setAttribute(attribute, `#${encodeURIComponent(namespaced)}`);
+        }
+        for (const attribute of [
+            "aria-labelledby", "aria-describedby", "aria-controls", "aria-owns", "aria-flowto",
+            "aria-details", "aria-errormessage", "for", "headers", "list"
+        ]) {
+            const value = element.getAttribute(attribute);
+            if (value === null) continue;
+            const namespaced = value.split(/\s+/).map((id) => ids.get(id) ?? id).join(" ");
+            if (namespaced !== value) element.setAttribute(attribute, namespaced);
+        }
+    }
+}
+
+function decodeFragment(value: string): string {
+    try { return decodeURIComponent(value); }
+    catch { return value; }
 }
 
 function withSectionHeading(content: Node, title: string, anchorId: string): Node {

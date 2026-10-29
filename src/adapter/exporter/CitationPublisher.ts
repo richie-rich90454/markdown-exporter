@@ -26,7 +26,7 @@ export async function addCitationReferences(
         if (stylePath !== undefined) {
             const styleSource = project?.files[stylePath];
             if (typeof styleSource === "string") {
-                style = `local-${stylePath}`;
+                style = `local-${hashStyle(styleSource)}`;
                 if (!registeredStyles.has(style)) {
                     plugins.config.get("@csl").styles.add(style, styleSource);
                     registeredStyles.add(style);
@@ -57,21 +57,20 @@ export async function addCitationReferences(
             });
         }
 
-        if (cited.size === 0) return;
-        const generated = new Cite(references.data.filter((entry) => cited.has(String(entry.id))));
-        const html = generated.format("bibliography", {
-            style,
-            lang: manifest?.metadata.language || "en-US",
-            format: "html"
-        });
+        if (cited.size === 0 && unresolved.size === 0) return;
         const wrapper = document.createElement("section");
         wrapper.className = "generated-references";
-        const heading = document.createElement("h1");
-        heading.textContent = "References";
-        wrapper.append(heading);
-        const parsed = new DOMParser().parseFromString(`<body>${html}</body>`, "text/html");
-        for (const child of Array.from(parsed.body.childNodes)) {
-            wrapper.append(document.importNode(child, true));
+        if (cited.size > 0) {
+            const generated = new Cite(references.data.filter((entry) => cited.has(String(entry.id))));
+            const html = generated.format("bibliography", {
+                style,
+                lang: manifest?.metadata.language || "en-US",
+                format: "html"
+            });
+            const heading = document.createElement("h1");
+            heading.textContent = "References";
+            wrapper.append(heading);
+            wrapper.append(sanitizeCitationHtml(html));
         }
         if (unresolved.size > 0) {
             const diagnostic = document.createElement("p");
@@ -90,6 +89,70 @@ export async function addCitationReferences(
         diagnostic.append(heading, message);
         sections.push({ entry: undefined, title: "References", anchorId: "", content: diagnostic });
     }
+}
+
+/** Keep citation markup useful to exports without trusting CSL or bibliography HTML. */
+export function sanitizeCitationHtml(source: string): DocumentFragment {
+    const parsed = new DOMParser().parseFromString(source, "text/html");
+    const fragment = document.createDocumentFragment();
+    for (const child of Array.from(parsed.body.childNodes)) {
+        const safe = sanitizeCitationNode(child);
+        if (safe !== undefined) fragment.append(safe);
+    }
+    return fragment;
+}
+
+const citationTags = new Set(["DIV", "P", "SPAN", "I", "EM", "B", "STRONG", "A", "SUP", "SUB"]);
+const citationDangerousTags = new Set(["SCRIPT", "STYLE", "IFRAME", "OBJECT", "EMBED", "SVG", "MATH"]);
+
+function sanitizeCitationNode(node: Node): Node | undefined {
+    if (node.nodeType === Node.TEXT_NODE) return document.createTextNode(node.textContent ?? "");
+    if (!(node instanceof Element)) return undefined;
+    if (citationDangerousTags.has(node.tagName)) return undefined;
+    if (!citationTags.has(node.tagName)) {
+        const unwrapped = document.createDocumentFragment();
+        for (const child of Array.from(node.childNodes)) {
+            const safe = sanitizeCitationNode(child);
+            if (safe !== undefined) unwrapped.append(safe);
+        }
+        return unwrapped;
+    }
+
+    const element = document.createElement(node.tagName.toLowerCase());
+    const className = node.getAttribute("class");
+    if (className !== null) {
+        const safeClasses = className.split(/\s+/).filter((value) => /^csl-[\w-]+$/.test(value));
+        if (safeClasses.length > 0) element.className = safeClasses.join(" ");
+    }
+    if (node.tagName === "A") {
+        const href = node.getAttribute("href");
+        if (href !== null && isSafeCitationHref(href)) {
+            element.setAttribute("href", href);
+            element.setAttribute("rel", "noopener noreferrer");
+        }
+    }
+    for (const child of Array.from(node.childNodes)) {
+        const safe = sanitizeCitationNode(child);
+        if (safe !== undefined) element.append(safe);
+    }
+    return element;
+}
+
+function isSafeCitationHref(value: string): boolean {
+    try {
+        const url = new URL(value, document.baseURI);
+        return url.protocol === "http:" || url.protocol === "https:" || url.protocol === "mailto:";
+    } catch {
+        return false;
+    }
+}
+
+function hashStyle(source: string): string {
+    let hash = 0x811c9dc5;
+    for (let index = 0; index < source.length; index += 1) {
+        hash = Math.imul(hash ^ source.charCodeAt(index), 0x01000193);
+    }
+    return (hash >>> 0).toString(36);
 }
 
 function replaceCitationMarkers(

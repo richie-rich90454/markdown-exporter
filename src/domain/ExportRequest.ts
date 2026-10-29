@@ -12,6 +12,7 @@ export class ExportRequest {
         readonly content: Node,
         readonly pageSetup: PageSetup,
         readonly bookProject?: BookProject,
-        readonly renderSource?: (source: string) => Promise<Node>
+        readonly renderSource?: (source: string) => Promise<Node>,
+        readonly isBookProject: boolean = bookProject !== undefined
     ) {}
 }

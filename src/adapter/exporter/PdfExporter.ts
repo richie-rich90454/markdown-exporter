@@ -10,8 +10,21 @@ import { font, textWidth } from "../../domain/pdf/PdfMetrics";
 import { paginate } from "../../domain/pdf/PdfPaginate";
 import { resolveImages, rasterize } from "../../domain/pdf/ImageDecode";
 import { writePdf } from "../../domain/pdf/PdfWriter";
-import { marginPt, pageHeightPt, pageWidthPt } from "../../domain/PageSetup";
-import { createBookContentsPage, createBookTitlePage, renderBookSections, resolveBookImageReferences } from "./BookExportContent";
+import {
+    marginPt,
+    pageDimensions,
+    pageHeightPt,
+    pageWidthPt,
+    PX_PER_MM
+} from "../../domain/PageSetup";
+import {
+    createBookContentsPage,
+    createBookTitlePage,
+    publicationSlug,
+    publicationTitle,
+    renderBookSections,
+    resolveBookImageReferences
+} from "./BookExportContent";
 import { addCitationReferences } from "./CitationPublisher";
 
 export class PdfExporter implements DocumentExporter {
@@ -23,6 +36,7 @@ export class PdfExporter implements DocumentExporter {
         if (request.format !== this.supportedFormat) {
             throw new Error(`PdfExporter cannot export ${request.format}`);
         }
+        const title = publicationTitle(request.bookProject, request.title, request.isBookProject);
         const content = await pdfContent(request);
         const decoded = await resolveImages(content);
         const embeds = new Map<string, boolean>();
@@ -36,7 +50,7 @@ export class PdfExporter implements DocumentExporter {
         // creates a detached tree, where every MathLayout would have zero-sized
         // ranges and degrade to unpositioned text. Mount it invisibly at the
         // preview's width while measuring, then discard the temporary tree.
-        const measureHost = mountForMeasurement(content, request.content);
+        const measureHost = mountForMeasurement(content, request.pageSetup);
         let layout: LaidOut;
         try {
             // jsdom and older browser engines may not expose FontFaceSet.
@@ -45,23 +59,37 @@ export class PdfExporter implements DocumentExporter {
         } finally {
             measureHost.remove();
         }
-        if ((request.bookProject?.manifest.entries.length ?? 0) > 1) {
-            layout = addRunningBookHeaders(layout, request.title, request.pageSetup);
+        if (request.isBookProject) {
+            layout = addRunningBookHeaders(layout, title, request.pageSetup);
         }
         const katexFonts =
             layout.mathFonts.length > 0
                 ? await (await import("./KatexPdfFonts")).loadKatexPdfFonts(layout.mathFonts)
                 : undefined;
+        const metadata = request.bookProject?.manifest.metadata;
         const bytes: Uint8Array = writePdf(
             layout,
             layout.images.map((image) => drawn.get(image.src) ?? null),
-            request.title,
+            title,
             request.pageSetup,
-            katexFonts
+            katexFonts,
+            {
+                language: metadata?.language || "en",
+                ...(metadata?.authors.length
+                    ? { author: metadata.authors.join("; ") }
+                    : {}),
+                ...(metadata?.description === undefined
+                    ? {}
+                    : { subject: metadata.description }),
+                keywords: [
+                    metadata?.publisher,
+                    metadata?.isbn
+                ].filter((value): value is string => value !== undefined && value.trim().length > 0).join("; ")
+            }
         );
         this.fileSaver.saveBlob(
             new Blob([bytes as BlobPart], { type: "application/pdf" }),
-            `${slug(request.title)}.pdf`
+            `${publicationSlug(title)}.pdf`
         );
         return ExportResults.success(this.supportedFormat);
     }
@@ -100,18 +128,18 @@ function addRunningBookHeaders(layout: LaidOut, title: string, setup: ExportRequ
     };
 }
 
-function mountForMeasurement(content: HTMLElement, preview: Node): HTMLElement {
-    const previewElement = preview instanceof HTMLElement ? preview : undefined;
-    // clientWidth is unscaled; the visible preview is nested in a zoom
-    // transform, while PDF geometry must be based on document CSS pixels.
-    const previewWidth = previewElement?.clientWidth ?? 0;
+function mountForMeasurement(content: HTMLElement, setup: ExportRequest["pageSetup"]): HTMLElement {
+    // Measure against the selected paper size itself. Reading a preview node's
+    // clientWidth makes export depend on responsive layout and zoom state, even
+    // though PDF coordinates always describe the unzoomed page.
+    const pageWidth = Math.round(pageDimensions(setup).widthMm * PX_PER_MM);
     content.classList.add("preview__flow", "pdf-measurement-flow");
     content.style.position = "fixed";
     content.style.top = "0";
     content.style.left = "-100000px";
     content.style.visibility = "hidden";
     content.style.pointerEvents = "none";
-    content.style.width = `${previewWidth > 0 ? previewWidth : 816}px`;
+    content.style.width = `${pageWidth}px`;
     content.style.height = "auto";
     document.body.append(content);
     return content;
@@ -120,7 +148,7 @@ function mountForMeasurement(content: HTMLElement, preview: Node): HTMLElement {
 async function pdfContent(request: ExportRequest): Promise<HTMLElement> {
     const sections = await renderBookSections(request);
     await addCitationReferences(sections, request.bookProject);
-    const isBook = (request.bookProject?.manifest.entries.length ?? 0) > 1;
+    const isBook = request.isBookProject;
     const root = document.createElement("div");
     if (isBook) {
         root.append(createBookTitlePage(request.bookProject, request.title));
@@ -143,12 +171,4 @@ async function pdfContent(request: ExportRequest): Promise<HTMLElement> {
         else root.append(section.content.cloneNode(true));
     }
     return root;
-}
-
-function slug(title: string): string {
-    const value = title
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "");
-    return value.length > 0 ? value : "document";
 }
