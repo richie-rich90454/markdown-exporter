@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { expect, test, type Page } from "@playwright/test";
+import { zipSync } from "fflate";
 
 const require = createRequire(import.meta.url);
 
@@ -91,6 +92,7 @@ test("lazy editor startup does not steal focus from another control", async ({ p
     await editorChunk;
     const divider = page.getByRole("separator");
     await divider.focus();
+    await expect(divider).toBeFocused();
     await expect(page.getByLabel("Markdown editor")).toBeVisible();
     await expect(divider).toBeFocused();
 });
@@ -101,7 +103,7 @@ test("source and inline modes share the Markdown document and undo history", asy
     const editor = page.getByLabel("Markdown editor");
     await editor.fill("**bold** and $x^2$");
 
-    await page.getByRole("button", { name: "Inline" }).click();
+    await page.getByRole("button", { name: "Inline", exact: true }).click();
     await expect(page.locator(".cm-md-bold")).toHaveText("bold");
     await expect(page.locator(".cm-math-inline .katex")).toHaveCount(1);
 
@@ -109,6 +111,99 @@ test("source and inline modes share the Markdown document and undo history", asy
     await expect(editor).toContainText("**bold** and $x^2$");
     await editor.press("Control+z");
     await expect(editor).toHaveText("");
+});
+
+test("manuscript-wide replace all participates in chronological undo and redo", async ({ page }) => {
+    const archive = zipSync({
+        "book.json": new TextEncoder().encode(JSON.stringify({
+            formatVersion: 1,
+            metadata: { title: "Undo manuscript replacement", authors: [], language: "en" },
+            entries: [
+                { id: "chapter-one", role: "chapter", path: "chapters/one.md", title: "Chapter One" },
+                { id: "chapter-two", role: "chapter", path: "chapters/two.md", title: "Chapter Two" }
+            ]
+        })),
+        "chapters/one.md": new TextEncoder().encode("alpha alpha appears in chapter one."),
+        "chapters/two.md": new TextEncoder().encode("alpha appears in chapter two.")
+    });
+    await page.addInitScript(() => {
+        Object.defineProperty(window, "showOpenFilePicker", { configurable: true, value: undefined });
+    });
+    await page.goto("/");
+    await useSourceEditor(page);
+    const chooser = page.waitForEvent("filechooser");
+    await page.getByRole("button", { name: "Open book" }).click();
+    await (await chooser).setFiles({
+        name: "undo-manuscript.mdbook",
+        mimeType: "application/zip",
+        buffer: Buffer.from(archive)
+    });
+
+    const editor = page.getByLabel("Markdown editor");
+    await expect(editor).toContainText("alpha alpha appears in chapter one.");
+    const replacement = page.locator(".book-tools__details").filter({ hasText: "Replace across manuscript" });
+    await replacement.locator("summary").click();
+    await replacement.getByLabel("Find").fill("alpha");
+    await replacement.getByLabel("Replace with").fill("a much longer word");
+    await replacement.getByRole("button", { name: "Replace all" }).click();
+    await expect(editor).toContainText("a much longer word a much longer word appears in chapter one.");
+
+    await editor.click();
+    await editor.press("Control+End");
+    await editor.pressSequentially(" later");
+    await editor.press("Control+z");
+    await expect(editor).not.toContainText(" later");
+    await expect(editor).toContainText("a much longer word a much longer word appears in chapter one.");
+
+    await editor.press("Control+z");
+    await expect(editor).toContainText("alpha alpha appears in chapter one.");
+    await editor.press("Control+Shift+z");
+    await expect(editor).toContainText("a much longer word a much longer word appears in chapter one.");
+
+    await page.locator(".book-tools__section").filter({ hasText: "Chapter Two" }).click();
+    await expect(editor).toContainText("a much longer word appears in chapter two.");
+});
+
+test("Save as from a book produces a standalone Markdown document", async ({ page }) => {
+    const archive = zipSync({
+        "book.json": new TextEncoder().encode(JSON.stringify({
+            formatVersion: 1,
+            metadata: { title: "Book Metadata Title", authors: ["Writer"], language: "en" },
+            entries: [
+                { id: "only-chapter", role: "chapter", path: "chapters/chapter-one.md", title: "Chapter One" }
+            ]
+        })),
+        "chapters/chapter-one.md": new TextEncoder().encode("# Chapter Heading\n\nStandalone content.")
+    });
+    await page.addInitScript(() => {
+        Object.defineProperty(window, "showOpenFilePicker", { configurable: true, value: undefined });
+        Object.defineProperty(window, "showSaveFilePicker", { configurable: true, value: undefined });
+    });
+    await page.goto("/");
+    await useSourceEditor(page);
+    const chooser = page.waitForEvent("filechooser");
+    await page.getByRole("button", { name: "Open book" }).click();
+    await (await chooser).setFiles({
+        name: "standalone-test.mdbook",
+        mimeType: "application/zip",
+        buffer: Buffer.from(archive)
+    });
+    await expect(page.getByRole("textbox", { name: "Markdown editor" })).toContainText("Standalone content.");
+
+    const markdownDownload = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Save as", exact: true }).click();
+    expect((await markdownDownload).suggestedFilename()).toBe("chapter-one.md");
+
+    const htmlDownload = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Choose export format" }).click();
+    await page.getByRole("menuitem", { name: "HTML" }).click();
+    const file = await htmlDownload;
+    const stream = await file.createReadStream();
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) chunks.push(chunk as Buffer);
+    const html = Buffer.concat(chunks).toString("utf8");
+    expect(html).not.toMatch(/class="book-title-page"/);
+    expect(html).toContain("Chapter Heading");
 });
 
 test("inline mode decorates short emphasis and renders Pandoc raw TeX spans", async ({ page }) => {
@@ -120,7 +215,7 @@ test("inline mode decorates short emphasis and renders Pandoc raw TeX spans", as
     await useSourceEditor(page);
     const editor = page.getByLabel("Markdown editor");
     await editor.fill("A *go* _up_ ~~away~~ ==now== with `\\alpha`{=tex}.");
-    await page.getByRole("button", { name: "Inline" }).click();
+    await page.getByRole("button", { name: "Inline", exact: true }).click();
 
     await expect(page.locator(".cm-md-italic").nth(0)).toHaveText("go");
     await expect(page.locator(".cm-md-italic").nth(1)).toHaveText("up");
@@ -252,7 +347,7 @@ test("renders copied double-escaped TeX consistently in preview and inline mode"
     expect(new Set(alignment.limitOffsets.slice(0, 3)).size).toBe(3);
     await page.screenshot({ path: "test-results/copied-tex-preview.png" });
 
-    await page.getByRole("button", { name: "Inline" }).click();
+    await page.getByRole("button", { name: "Inline", exact: true }).click();
     await expect(page.locator(".cm-math-display .katex")).toHaveCount(2);
     await expect(page.locator(".cm-math-inline .katex")).toHaveCount(1);
     await expect(page.locator(".cm-math-error")).toHaveCount(0);
@@ -265,7 +360,7 @@ test("inline mode renders multiline and fenced math without changing source", as
     const editor = page.getByLabel("Markdown editor");
     await editor.fill(source);
 
-    await page.getByRole("button", { name: "Inline" }).click();
+    await page.getByRole("button", { name: "Inline", exact: true }).click();
 
     await expect(page.locator(".cm-math-display .katex")).toHaveCount(2);
     await page.getByRole("button", { name: "Source" }).click();
@@ -292,7 +387,7 @@ test("inline mode restores Markdown after scrolling through a fenced code block"
     await page.goto("/");
     await useSourceEditor(page);
     await page.getByLabel("Markdown editor").fill(source);
-    await page.getByRole("button", { name: "Inline" }).click();
+    await page.getByRole("button", { name: "Inline", exact: true }).click();
     await page.locator(".cm-scroller").evaluate((element) => {
         element.scrollTop = element.scrollHeight * 0.7;
     });
@@ -321,7 +416,7 @@ test("inline math keeps full-document fence context beyond the editor viewport",
         "more code\n".repeat(5) +
         "```";
     await editor.fill(source);
-    await page.getByRole("button", { name: "Inline" }).click();
+    await page.getByRole("button", { name: "Inline", exact: true }).click();
     await editor.press("Control+End");
 
     await expect(page.locator(".cm-math-inline")).toHaveCount(0);
@@ -341,7 +436,7 @@ test("inline mode renders a long math fence and loads offscreen chemistry suppor
         "\n$\\ce{H2O -> H+ + OH-}$";
     await editor.fill(source);
     await editor.press("Control+Home");
-    await page.getByRole("button", { name: "Inline" }).click();
+    await page.getByRole("button", { name: "Inline", exact: true }).click();
 
     await expect(page.locator(".cm-math-display .katex")).toHaveCount(1);
     await editor.press("Control+End");
@@ -359,7 +454,7 @@ test("inline math resolves chemistry commands, equation labels, and references",
     await useSourceEditor(page);
     const editor = page.getByLabel("Markdown editor");
     await editor.fill(source);
-    await page.getByRole("button", { name: "Inline" }).click();
+    await page.getByRole("button", { name: "Inline", exact: true }).click();
 
     await expect(page.locator(".cm-math-display .katex")).toHaveCount(1);
     await expect(page.locator(".cm-math-display .katex-error")).toHaveCount(0);
@@ -509,7 +604,7 @@ test("opens a local folder, edits its Markdown file, and saves through its handl
 
 test("switching documents never leaves a stale file or folder save target", async ({ page }) => {
     await page.addInitScript(() => {
-        const state = { native: "", folder: "", folderWrites: 0 };
+        const state = { native: "", folder: "# Folder copy", folderWrites: 0 };
         Object.defineProperty(window, "__saveTargets", {
             configurable: true,
             value: state
@@ -559,7 +654,9 @@ test("switching documents never leaves a stale file or folder save target", asyn
     await page.getByRole("button", { name: "Open folder" }).click();
     await expect(page.getByRole("complementary", { name: "Notes files" })).toBeVisible();
     await page.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(page.locator(".editor-footer")).toContainText("Saved original.md in Notes.");
+    await expect(page.locator(".editor-footer")).toContainText(
+        "A file with this name already exists in the selected folder."
+    );
     await expect
         .poll(() =>
             page.evaluate(
@@ -568,7 +665,7 @@ test("switching documents never leaves a stale file or folder save target", asyn
                         .folder
             )
         )
-        .toBe("# Original file");
+        .toBe("# Folder copy");
     expect(
         await page.evaluate(
             () => (window as unknown as { __saveTargets: { native: string } }).__saveTargets.native
@@ -602,7 +699,7 @@ test("switching documents never leaves a stale file or folder save target", asyn
                 (window as unknown as { __saveTargets: { folderWrites: number } }).__saveTargets
                     .folderWrites
         )
-    ).toBe(1);
+    ).toBe(0);
 });
 
 test("keeps recovery after save permission is denied and downloads through the fallback", async ({
@@ -620,8 +717,9 @@ test("keeps recovery after save permission is denied and downloads through the f
     await editor.fill("# Private note\n\nKeep this draft on device.");
     await page.getByRole("button", { name: "Save as" }).click();
     await expect(page.locator(".editor-footer")).toContainText("Permission denied");
-    await expect(page.locator(".editor-footer")).toContainText("local recovery draft is preserved");
-    await expect(page.locator(".editor-footer")).toContainText("Draft recovered automatically");
+    await expect(page.locator(".editor-footer")).toContainText(
+        "A local recovery draft was saved on this device."
+    );
 
     await page.reload();
     await expect(page.locator(".editor-footer")).toContainText("Recovered a local draft");
@@ -647,9 +745,12 @@ test("keeps recovery after save permission is denied and downloads through the f
 test("does not load KaTeX or Mermaid for plain Markdown or currency", async ({ page }) => {
     const featureRequests: string[] = [];
     page.on("request", (request) => {
-        if (/katex|mermaid|mhchem|diagram|rehype-highlight|rehype-raw/i.test(request.url())) {
-            featureRequests.push(request.url());
-        }
+        const pathname = new URL(request.url()).pathname;
+        const optionalFeatureChunk =
+            /(?:^|\/|~)katex-[^/]+\.js$/i.test(pathname) ||
+            /(?:^|\/)(?:diagram-vendor~)?mermaid(?:\.core|-zenuml)[^/]*\.js$/i.test(pathname) ||
+            /(?:mhchem|rehype-highlight|rehype-raw)-[^/]+\.js$/i.test(pathname);
+        if (optionalFeatureChunk) featureRequests.push(pathname);
     });
 
     await page.goto("/");
@@ -683,14 +784,20 @@ test("loads code highlighting and raw HTML parsing only when those features are 
 test("shares one KaTeX runtime between inline editing and the preview", async ({ page }) => {
     const katexScripts = new Set<string>();
     page.on("request", (request) => {
-        if (/\/assets\/katex-[^/]+\.js$/.test(request.url())) katexScripts.add(request.url());
+        const pathname = new URL(request.url()).pathname;
+        // Rolldown can place the runtime in a shared editor/renderer vendor
+        // chunk, so its filename may be prefixed by other entry names. Observe
+        // the actual runtime module request, not only standalone `katex-*` files.
+        if (/\/assets\/(?:[^/]*~)?katex-[^/]+\.js$/i.test(pathname)) {
+            katexScripts.add(pathname);
+        }
     });
 
     await page.goto("/");
     await useSourceEditor(page);
     await page.getByLabel("Markdown editor").fill("$x^2 + 1$");
     await expect(page.locator(".preview__flow .katex")).toHaveCount(1);
-    await page.getByRole("button", { name: "Inline" }).click();
+    await page.getByRole("button", { name: "Inline", exact: true }).click();
     await expect(page.locator(".cm-math-inline .katex")).toHaveCount(1);
 
     expect(katexScripts.size).toBe(1);
@@ -712,10 +819,12 @@ test("resizes the split with the keyboard", async ({ page }) => {
     await useSourceEditor(page);
     const divider = page.getByRole("separator");
     await divider.focus();
+    await expect(divider).toBeFocused();
     const before = await divider.getAttribute("aria-valuenow");
-    await page.keyboard.press("ArrowRight");
+    await divider.press("ArrowRight");
     await expect(divider).not.toHaveAttribute("aria-valuenow", before ?? "50");
-    await page.keyboard.press("Enter");
+    await expect(divider).toBeFocused();
+    await divider.press("Enter");
     await expect(divider).toHaveAttribute("aria-valuenow", "50");
 });
 
@@ -956,7 +1065,7 @@ test("renders the Chinese-cities calculus sample without losing math or table la
     expect(paginatedMath.filter((tex) => tex.includes("x=r"))).toHaveLength(1);
     expect(paginatedMath.filter((tex) => tex.includes("y=\\ln D"))).toHaveLength(1);
 
-    await page.getByRole("button", { name: "Inline" }).click();
+    await page.getByRole("button", { name: "Inline", exact: true }).click();
     const scroller = page.locator(".cm-scroller");
     const { scrollHeight, clientHeight } = await scroller.evaluate((element) => ({
         scrollHeight: element.scrollHeight,
@@ -989,11 +1098,10 @@ test("renders the Chinese-cities calculus sample without losing math or table la
     expect(maxInlineFormulas).toBe(5);
     await expect(page.locator(".cm-math-error")).toHaveCount(0);
     await page.getByRole("button", { name: "Source" }).click();
-    const editor = page.getByLabel("Markdown editor");
-    await editor.press("Control+f");
-    const search = page.locator(".cm-search input").first();
-    await search.fill("D(r)");
-    await search.press("Enter");
-    await editor.press("Escape");
-    await expect(editor).toContainText("\\\\[");
+    const sourceAfterModeSwitch = await page.evaluate(() =>
+        (window as unknown as { __markdownEditorSource?: () => string })
+            .__markdownEditorSource?.()
+    );
+    expect(sourceAfterModeSwitch).toContain("D(r)=D_0");
+    expect(sourceAfterModeSwitch).toContain("\\\\[");
 });

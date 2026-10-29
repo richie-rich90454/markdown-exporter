@@ -2,8 +2,10 @@ import { createEffect, createSignal, lazy, onCleanup, onMount, Show, Suspense } 
 
 import type { ApplicationContext } from "../ApplicationContext";
 import type { ExportFormat } from "../domain/ExportFormat";
+import type { EditorHistoryChangeKind, EditorHistoryPatch } from "../domain/EditorHistory";
 import type { MarkdownDocument } from "../domain/MarkdownDocument";
 import { MarkdownDocument as MarkdownDocumentValue } from "../domain/MarkdownDocument";
+import type { RenderedDocument } from "../domain/RenderedDocument";
 import { Debouncer } from "../util/Debouncer";
 import { Header } from "./components/Header";
 import { PageSetupSheet } from "./components/PageSetupSheet";
@@ -41,6 +43,7 @@ export function App(props: AppProps) {
     let previewFlow: HTMLDivElement | undefined;
     let main: HTMLElement | undefined;
     let pendingRevision = -1;
+    let renderedRevision = -1;
     let announceTimer: ReturnType<typeof setTimeout> | undefined;
     let restoreFocus: HTMLElement | undefined;
 
@@ -121,8 +124,12 @@ export function App(props: AppProps) {
         return element instanceof HTMLElement ? element : undefined;
     }
 
-    function onSourceChange(source: string): void {
-        context.editorStore.update(source);
+    function onSourceChange(
+        source: string,
+        patch?: EditorHistoryPatch,
+        kind?: EditorHistoryChangeKind
+    ): void {
+        context.editorStore.update(source, patch, kind);
         context.bookProjectStore.updateActive(source);
         pendingRevision = context.editorStore.current().revision;
         debouncer.schedule();
@@ -151,6 +158,7 @@ export function App(props: AppProps) {
             return;
         }
         previewStore.setRenderedDocument(rendered, performance.now() - startedAt);
+        renderedRevision = document.revision;
         scheduleAnnouncement();
     }
 
@@ -169,9 +177,16 @@ export function App(props: AppProps) {
     }
 
     async function exportActiveFormat(format: ExportFormat): Promise<void> {
-        const rendered = previewStore.current();
-        if (rendered === null || rendered.isEmpty) {
+        const currentDocument = context.editorStore.current();
+        if (currentDocument.isEmpty) {
             exportStore.fail("Write some Markdown before exporting.");
+            return;
+        }
+        const rendered = await ensureCurrentPreview();
+        if (rendered === null || rendered.isEmpty) {
+            exportStore.fail(
+                previewStore.lastError() ?? "The preview is still updating. Try exporting again in a moment."
+            );
             return;
         }
         if (previewFlow === undefined) {
@@ -186,9 +201,26 @@ export function App(props: AppProps) {
             context.settingsStore.current(),
             context.bookProjectStore.current(),
             async (source) =>
-                (await context.editorController.render(MarkdownDocumentValue.initial(source))).content
+                (await context.editorController.render(MarkdownDocumentValue.initial(source))).content,
+            context.bookProjectStore.isBookProject()
         );
         exportStore.settle(result);
+    }
+
+    async function ensureCurrentPreview(): Promise<RenderedDocument | null> {
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            const document = context.editorStore.current();
+            if (document.isEmpty) return null;
+            if (renderedRevision !== document.revision) {
+                debouncer.cancel();
+                pendingRevision = document.revision;
+                await renderDocument(document);
+            }
+            if (context.editorStore.current().revision === document.revision) {
+                return renderedRevision === document.revision ? previewStore.current() : null;
+            }
+        }
+        return null;
     }
 
     function togglePageSetup(): void {

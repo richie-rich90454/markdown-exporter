@@ -46,7 +46,9 @@ test("paints the document onto the page canvas", async ({ page }) => {
 // Bounding box of the ink on the page canvas, in device pixels. Text drawn at
 // the wrong scale — a font sized in points inside a scaled context, for
 // instance — runs past the right margin and shows up here.
-async function inkBox(page: Page): Promise<{ left: number; right: number; top: number } | null> {
+async function inkBox(
+    page: Page
+): Promise<{ left: number; right: number; top: number; scale: number; pageWidth: number } | null> {
     return page.evaluate(() => {
         const canvas = document.querySelector<HTMLCanvasElement>(".page-canvas");
         const context = canvas?.getContext("2d") ?? null;
@@ -66,7 +68,20 @@ async function inkBox(page: Page): Promise<{ left: number; right: number; top: n
                 }
             }
         }
-        return { left, right, top };
+        // Read canvas CSS dimensions rather than its client rect: the preview
+        // viewport applies a 75% zoom transform, while the expected page
+        // margins and canvas backing-store pixels use unzoomed page geometry.
+        const pageWidth = Number.parseFloat(canvas.style.width);
+        const pageHeight = Number.parseFloat(canvas.style.height);
+        const scaleX = canvas.width / pageWidth;
+        const scaleY = canvas.height / pageHeight;
+        return {
+            left: left / scaleX,
+            right: right / scaleX,
+            top: top / scaleY,
+            scale: 1,
+            pageWidth
+        };
     });
 }
 
@@ -95,9 +110,9 @@ test("keeps the painted text inside the margins", async ({ page }) => {
         return;
     }
     // A4 at 20mm margins: 56.7pt either side, which is 75.6 device pixels.
-    expect(box.left).toBeGreaterThanOrEqual(60);
-    expect(box.right).toBeLessThanOrEqual(795 - 60);
-    expect(box.top).toBeLessThan(200);
+    expect(box.left / box.scale).toBeGreaterThanOrEqual(60);
+    expect(box.right / box.scale).toBeLessThanOrEqual(box.pageWidth - 60);
+    expect(box.top / box.scale).toBeLessThan(200);
 });
 
 test("keeps a table and a code block on the painted page", async ({ page }) => {

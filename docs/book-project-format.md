@@ -57,3 +57,7 @@ BibTeX entries can be cited with markers such as `[@smith2020]` and `[@smith2020
 ## Saving and recovery
 
 An opened `.md` file is represented as a single-section project and is still saved as Markdown unless the author chooses a book-folder or `.mdbook` save. Book recovery stores the manifest, chapter text, local assets, and active section on this device. Folder APIs are used only when available and authorized by the browser; otherwise file-picker and download flows remain available.
+
+When folder handles are unavailable, selecting a project folder imports its files in memory; use **Save book** to download a `.mdbook` copy. Folder saves write chapter and asset files before updating `book.json`, remove section files deleted in the editor, and restore the previous contents when a write reports an error. Browser folder APIs do not provide a transaction across multiple files, so a browser crash, device shutdown, or power loss during a save can still leave a partially written folder. Keep a separate backup for important manuscripts.
+
+Folder and archive paths are checked against traversal, reserved names, case-insensitive collisions, and Unicode-normalized collisions. The app limits individual files, total expanded project size, archive size, and file count before importing or saving a project.

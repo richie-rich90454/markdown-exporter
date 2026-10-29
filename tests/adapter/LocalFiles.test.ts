@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/require-await -- Directory fakes mirror browser Promise APIs. */
 import { describe, expect, it } from "vitest";
 
 import { BrowserLocalDocuments } from "../../src/adapter/io/LocalFiles";
@@ -17,6 +18,56 @@ function fileHandle(name: string, source = "# file"): LocalFileHandle {
 }
 
 describe("LocalFiles", () => {
+    it("uses separate file-picker filters for Markdown documents and book archives", async () => {
+        const previousPicker = Object.getOwnPropertyDescriptor(window, "showOpenFilePicker");
+        const requests: { types?: readonly { accept: Readonly<Record<string, readonly string[]>> }[] }[] = [];
+        Object.defineProperty(window, "showOpenFilePicker", {
+            configurable: true,
+            value: async (options: { types?: readonly { accept: Readonly<Record<string, readonly string[]>> }[] }) => {
+                requests.push(options);
+                return [];
+            }
+        });
+        try {
+            const documents = new BrowserLocalDocuments();
+            await documents.pickOpenFile();
+            await documents.pickOpenBookFile();
+
+            const markdownExtensions = Object.values(requests[0]?.types?.[0]?.accept ?? {}).flat();
+            const bookExtensions = Object.values(requests[1]?.types?.[0]?.accept ?? {}).flat();
+            expect(markdownExtensions).toContain(".md");
+            expect(markdownExtensions).not.toContain(".mdbook");
+            expect(bookExtensions).toEqual([".mdbook"]);
+        } finally {
+            restoreWindowProperty("showOpenFilePicker", previousPicker);
+        }
+    });
+
+    it("uses the matching save filter for Markdown documents and book archives", async () => {
+        const previousPicker = Object.getOwnPropertyDescriptor(window, "showSaveFilePicker");
+        const requests: { suggestedName?: string; types?: readonly { accept: Readonly<Record<string, readonly string[]>> }[] }[] = [];
+        Object.defineProperty(window, "showSaveFilePicker", {
+            configurable: true,
+            value: async (options: { suggestedName?: string; types?: readonly { accept: Readonly<Record<string, readonly string[]>> }[] }) => {
+                requests.push(options);
+                return fileHandle(options.suggestedName ?? "draft.md");
+            }
+        });
+        try {
+            const documents = new BrowserLocalDocuments();
+            await documents.pickSaveFile("draft.md");
+            await documents.pickSaveFile("book.mdbook");
+
+            const markdownExtensions = Object.values(requests[0]?.types?.[0]?.accept ?? {}).flat();
+            const bookExtensions = Object.values(requests[1]?.types?.[0]?.accept ?? {}).flat();
+            expect(markdownExtensions).toContain(".md");
+            expect(markdownExtensions).not.toContain(".mdbook");
+            expect(bookExtensions).toEqual([".mdbook"]);
+        } finally {
+            restoreWindowProperty("showSaveFilePicker", previousPicker);
+        }
+    });
+
     it("lists supported Markdown files through nested local folders", async () => {
         const nested: LocalDirectoryHandle = {
             kind: "directory",
@@ -70,3 +121,8 @@ describe("LocalFiles", () => {
         expect(closed).toBe(true);
     });
 });
+
+function restoreWindowProperty(key: string, descriptor: PropertyDescriptor | undefined): void {
+    if (descriptor === undefined) Reflect.deleteProperty(window, key);
+    else Object.defineProperty(window, key, descriptor);
+}

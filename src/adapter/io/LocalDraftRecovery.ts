@@ -5,14 +5,20 @@ const DATABASE_NAME = "markdown-exporter-local";
 const STORE_NAME = "drafts";
 const DRAFT_KEY = "active-document";
 const LOCAL_STORAGE_KEY = "markdown-exporter:recovery-draft";
+let recoveryWriteQueue: Promise<void> = Promise.resolve();
+let recoveryClockInitialized = false;
+let latestRecoverySavedAt = 0;
 
 async function loadRecoveryDraft(): Promise<RecoveredDraft | null> {
+    const localDraft = loadLocalStorageDraft();
     try {
         const database = await openDatabase();
         if (database !== null) {
             try {
-                const result = await readDraft(database);
-                if (result !== null) return result;
+                const indexedDbDraft = await readDraft(database);
+                const latest = chooseLatestRecoveryDraft(indexedDbDraft, localDraft);
+                rememberRecoveryTime(latest);
+                return latest;
             } finally {
                 database.close();
             }
@@ -20,14 +26,8 @@ async function loadRecoveryDraft(): Promise<RecoveredDraft | null> {
     } catch {
         // Browser privacy settings can disable IndexedDB; use localStorage below.
     }
-    try {
-        const value = localStorage.getItem(LOCAL_STORAGE_KEY);
-        if (value === null) return null;
-        const parsed = JSON.parse(value, decodeBinary) as Partial<RecoveredDraft>;
-        return normalizeDraft(parsed);
-    } catch {
-        return null;
-    }
+    rememberRecoveryTime(localDraft);
+    return localDraft;
 }
 
 async function saveRecoveryDraft(
@@ -35,9 +35,13 @@ async function saveRecoveryDraft(
     bookProject?: BookProject,
     activeEntryId?: string
 ): Promise<void> {
+    if (!recoveryClockInitialized) rememberRecoveryTime(await loadRecoveryDraft());
+    const savedAt = Math.max(Date.now(), latestRecoverySavedAt + 1);
+    latestRecoverySavedAt = savedAt;
     const draft: RecoveredDraft = {
         source,
-        savedAt: Date.now(),
+        // Preserve a strict ordering even for multiple saves in the same millisecond or a clock correction.
+        savedAt,
         ...(bookProject === undefined ? {} : { bookProject }),
         ...(activeEntryId === undefined ? {} : { activeEntryId })
     };
@@ -57,13 +61,21 @@ async function saveRecoveryDraft(
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(draft, encodeBinary));
 }
 
+function rememberRecoveryTime(draft: RecoveredDraft | null): void {
+    if (draft !== null) latestRecoverySavedAt = Math.max(latestRecoverySavedAt, draft.savedAt);
+    recoveryClockInitialized = true;
+}
+
 export class BrowserDraftRecovery implements DraftRecovery {
     load(): Promise<RecoveredDraft | null> {
         return loadRecoveryDraft();
     }
 
     save(source: string, bookProject?: BookProject, activeEntryId?: string): Promise<void> {
-        return saveRecoveryDraft(source, bookProject, activeEntryId);
+        const pending = recoveryWriteQueue.then(() => saveRecoveryDraft(source, bookProject, activeEntryId));
+        // A failed write should be reported to its caller but must not prevent later edits from being saved.
+        recoveryWriteQueue = pending.catch(() => undefined);
+        return pending;
     }
 }
 
@@ -111,10 +123,33 @@ function normalizeDraft(value: Partial<RecoveredDraft> | null | undefined): Reco
         : undefined;
     return {
         source: value.source,
-        savedAt: typeof value.savedAt === "number" ? value.savedAt : 0,
+        savedAt: typeof value.savedAt === "number" && Number.isFinite(value.savedAt)
+            ? Math.max(0, Math.trunc(value.savedAt))
+            : 0,
         ...(bookProject === undefined ? {} : { bookProject }),
         ...(activeEntryId === undefined ? {} : { activeEntryId })
     };
+}
+
+/** Prefers the most recently saved copy when both local recovery backends contain a draft. */
+export function chooseLatestRecoveryDraft(
+    indexedDbDraft: RecoveredDraft | null,
+    localStorageDraft: RecoveredDraft | null
+): RecoveredDraft | null {
+    if (indexedDbDraft === null) return localStorageDraft;
+    if (localStorageDraft === null) return indexedDbDraft;
+    return indexedDbDraft.savedAt >= localStorageDraft.savedAt ? indexedDbDraft : localStorageDraft;
+}
+
+function loadLocalStorageDraft(): RecoveredDraft | null {
+    try {
+        const value = localStorage.getItem(LOCAL_STORAGE_KEY);
+        if (value === null) return null;
+        const parsed = JSON.parse(value, decodeBinary) as Partial<RecoveredDraft>;
+        return normalizeDraft(parsed);
+    } catch {
+        return null;
+    }
 }
 
 function encodeBinary(_key: string, value: unknown): unknown {

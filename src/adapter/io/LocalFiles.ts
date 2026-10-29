@@ -36,12 +36,20 @@ const markdownFileTypes: readonly LocalFilePickerOptions[] = [
     }
 ];
 const bookFileTypes: readonly LocalFilePickerOptions[] = [
-    ...markdownFileTypes,
     { description: "Markdown book project", accept: { "application/zip": [".mdbook"] } }
 ];
 
 export class BrowserLocalDocuments implements LocalDocuments {
     async pickOpenFile(): Promise<LocalFileHandle | undefined> {
+        if (window.showOpenFilePicker === undefined) return undefined;
+        const [handle] = await window.showOpenFilePicker({
+            multiple: false,
+            types: markdownFileTypes
+        });
+        return handle;
+    }
+
+    async pickOpenBookFile(): Promise<LocalFileHandle | undefined> {
         if (window.showOpenFilePicker === undefined) return undefined;
         const [handle] = await window.showOpenFilePicker({
             multiple: false,
@@ -57,7 +65,8 @@ export class BrowserLocalDocuments implements LocalDocuments {
 
     async pickSaveFile(suggestedName: string): Promise<LocalFileHandle | undefined> {
         if (window.showSaveFilePicker === undefined) return undefined;
-        return window.showSaveFilePicker({ suggestedName, types: bookFileTypes });
+        const types = /\.mdbook$/i.test(suggestedName) ? bookFileTypes : markdownFileTypes;
+        return window.showSaveFilePicker({ suggestedName, types });
     }
 
     async listMarkdownFiles(directory: LocalDirectoryHandle): Promise<LocalFileEntry[]> {

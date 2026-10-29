@@ -16,6 +16,7 @@ export interface LocalDirectoryHandle {
     values(): AsyncIterable<LocalFileHandle | LocalDirectoryHandle>;
     getFileHandle(name: string, options?: { create?: boolean }): Promise<LocalFileHandle>;
     getDirectoryHandle?(name: string, options?: { create?: boolean }): Promise<LocalDirectoryHandle>;
+    removeEntry?(name: string): Promise<void>;
 }
 
 export interface LocalFileEntry {
@@ -26,6 +27,7 @@ export interface LocalFileEntry {
 
 export interface LocalDocuments {
     pickOpenFile(): Promise<LocalFileHandle | undefined>;
+    pickOpenBookFile(): Promise<LocalFileHandle | undefined>;
     pickDirectory(): Promise<LocalDirectoryHandle | undefined>;
     pickSaveFile(suggestedName: string): Promise<LocalFileHandle | undefined>;
     listMarkdownFiles(directory: LocalDirectoryHandle): Promise<LocalFileEntry[]>;

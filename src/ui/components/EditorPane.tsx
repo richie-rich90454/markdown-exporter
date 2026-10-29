@@ -1,34 +1,17 @@
-import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-import { markdown } from "@codemirror/lang-markdown";
-import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
-import {
-    Compartment,
-    EditorState,
-    RangeSet,
-    StateEffect,
-    StateField,
-    Transaction,
-    type Extension,
-    type Range
-} from "@codemirror/state";
-import {
-    Decoration,
-    EditorView,
-    ViewPlugin,
-    keymap,
-    type DecorationSet,
-    type ViewUpdate,
-    WidgetType
-} from "@codemirror/view";
-import { searchKeymap } from "@codemirror/search";
+import type { Compartment as CodeMirrorCompartment, EditorState as CodeMirrorEditorState, StateEffect as CodeMirrorStateEffect, StateField as CodeMirrorStateField, Extension, Range } from "@codemirror/state";
+import type { HighlightStyle as CodeMirrorHighlightStyle } from "@codemirror/language";
+import type { Decoration as CodeMirrorDecoration, DecorationSet, EditorView as CodeMirrorEditorView, ViewUpdate, WidgetType as CodeMirrorWidgetType } from "@codemirror/view";
 import type katex from "katex";
-import { For, Show, createEffect, createSignal, lazy, onCleanup, onMount } from "solid-js";
-import { tags } from "@lezer/highlight";
+import { For, Show, createEffect, createMemo, createSignal, lazy, onCleanup, onMount } from "solid-js";
 
 import type { ApplicationContext } from "../../ApplicationContext";
 import type { BookProject } from "../../domain/BookProject";
+import { cloneBookProject, sameBookProject } from "../../domain/BookProjectSnapshot";
+import type { EditorHistoryChangeKind, EditorHistoryPatch } from "../../domain/EditorHistory";
+import { applyReplacementPatches, findReplacementPatches } from "../../domain/ReplacementPatches";
 import { PHYSICS_MACROS } from "../../domain/KatexMacros";
 import { findPandocTexSequences, hasPandocTex, normalizeTexFormula } from "../../domain/PandocTex";
+import type * as CodeMirrorRuntimeModule from "./CodeMirrorRuntime";
 import type {
     LocalDirectoryHandle,
     LocalFileEntry,
@@ -44,42 +27,163 @@ const RichMarkdownEditor = lazy(() =>
 
 export interface EditorPaneProps {
     context: ApplicationContext;
-    onInput: (value: string) => void;
+    onInput: (
+        value: string,
+        patch?: EditorHistoryPatch,
+        kind?: EditorHistoryChangeKind
+    ) => void;
     onHistoryStep: () => void;
     editorRef: (focus: (() => void) | undefined) => void;
+}
+
+interface BookReplacementHistoryEntry {
+    readonly actionId: string;
+    readonly activeEntryId: string;
+    readonly changes: Readonly<Record<string, readonly EditorHistoryPatch[]>>;
+    readonly applied: boolean;
 }
 
 let katexApi: KatexApi | undefined;
 let katexLoad: Promise<void> | undefined;
 let katexChemistryLoad: Promise<unknown> | undefined;
 let katexVersion = 0;
-const refreshInlineDecorations = StateEffect.define<void>();
-const refreshMathDecorations = StateEffect.define<void>();
-const setMathDecorations = StateEffect.define<DecorationSet>();
-const activeEditorViews = new WeakSet<EditorView>();
-const mathScanCache = new WeakMap<EditorState["doc"], DocumentMathScan>();
-const editorHighlightStyle = HighlightStyle.define([
-    { tag: tags.comment, color: "var(--text-secondary)" },
-    { tag: tags.meta, color: "var(--text-secondary)" },
-    { tag: tags.heading, color: "var(--text)", fontWeight: "600" },
-    { tag: tags.strong, color: "var(--text)", fontWeight: "600" },
-    { tag: tags.emphasis, color: "var(--text)", fontStyle: "italic" },
-    {
-        tag: [
-            tags.keyword,
-            tags.atom,
-            tags.number,
-            tags.bool,
-            tags.string,
-            tags.operator,
-            tags.definition(tags.variableName),
-            tags.function(tags.variableName),
-            tags.typeName,
-            tags.link
-        ],
-        color: "var(--text)"
-    }
-]);
+type CodeMirrorRuntime = typeof CodeMirrorRuntimeModule;
+let codeMirrorRuntime: CodeMirrorRuntime | undefined;
+let codeMirrorRuntimeLoad: Promise<CodeMirrorRuntime> | undefined;
+const activeEditorViews = new WeakSet<CodeMirrorEditorView>();
+const mathScanCache = new WeakMap<CodeMirrorEditorState["doc"], DocumentMathScan>();
+interface InlineCodeMirrorExtensions {
+    readonly refreshInlineDecorations: ReturnType<typeof CodeMirrorStateEffect.define<void>>;
+    readonly refreshMathDecorations: ReturnType<typeof CodeMirrorStateEffect.define<void>>;
+    readonly setMathDecorations: ReturnType<typeof CodeMirrorStateEffect.define<DecorationSet>>;
+    readonly inlineMathField: CodeMirrorStateField<DecorationSet>;
+    readonly inlineMathPlugin: Extension;
+    readonly inlinePlugin: Extension;
+    readonly highlightStyle: CodeMirrorHighlightStyle;
+}
+let inlineExtensions: InlineCodeMirrorExtensions | undefined;
+
+function loadCodeMirrorRuntime(): Promise<CodeMirrorRuntime> {
+    codeMirrorRuntimeLoad ??= import("./CodeMirrorRuntime").then((runtime) => {
+        codeMirrorRuntime = runtime;
+        inlineExtensions = createInlineCodeMirrorExtensions(runtime);
+        return runtime;
+    });
+    return codeMirrorRuntimeLoad;
+}
+
+function createInlineCodeMirrorExtensions(runtime: CodeMirrorRuntime): InlineCodeMirrorExtensions {
+    const refreshInlineDecorations = runtime.StateEffect.define<void>();
+    const refreshMathDecorations = runtime.StateEffect.define<void>();
+    const setMathDecorations = runtime.StateEffect.define<DecorationSet>();
+    const inlineMathField = runtime.StateField.define<DecorationSet>({
+        create: () => runtime.Decoration.none,
+        update: (decorations, transaction) => {
+            decorations = decorations.map(transaction.changes);
+            for (const effect of transaction.effects) {
+                if (effect.is(setMathDecorations)) decorations = effect.value;
+            }
+            return decorations;
+        },
+        provide: (field) => runtime.EditorView.decorations.from(field)
+    });
+    const inlinePlugin = runtime.ViewPlugin.fromClass(
+        class {
+            decorations: DecorationSet;
+
+            constructor(view: CodeMirrorEditorView) {
+                this.decorations = inlineDecorations(view);
+            }
+
+            update(update: ViewUpdate): void {
+                if (
+                    update.transactions.some((transaction) =>
+                        transaction.effects.some((effect) => effect.is(setMathDecorations))
+                    )
+                ) return;
+                if (
+                    update.docChanged ||
+                    update.viewportChanged ||
+                    update.transactions.some((transaction) =>
+                        transaction.effects.some((effect) => effect.is(refreshInlineDecorations))
+                    )
+                ) this.decorations = inlineDecorations(update.view);
+            }
+        },
+        { decorations: (plugin) => plugin.decorations }
+    );
+    const inlineMathPlugin = runtime.ViewPlugin.fromClass(
+        class {
+            private scheduled = false;
+
+            constructor(view: CodeMirrorEditorView) {
+                this.schedule(view);
+            }
+
+            update(update: ViewUpdate): void {
+                if (
+                    update.docChanged ||
+                    update.viewportChanged ||
+                    update.transactions.some((transaction) =>
+                        transaction.effects.some((effect) => effect.is(refreshMathDecorations))
+                    )
+                ) this.schedule(update.view);
+            }
+
+            private schedule(view: CodeMirrorEditorView): void {
+                if (this.scheduled) return;
+                this.scheduled = true;
+                queueMicrotask(() => {
+                    this.scheduled = false;
+                    if (!activeEditorViews.has(view)) return;
+                    const next = mathDecorations(view);
+                    if (
+                        runtime.RangeSet.eq(
+                            [view.state.field(inlineMathField)],
+                            [next],
+                            0,
+                            view.state.doc.length
+                        )
+                    ) return;
+                    view.dispatch({ effects: setMathDecorations.of(next) });
+                });
+            }
+        },
+        {}
+    );
+    const tags = runtime.tags;
+    const highlightStyle = runtime.HighlightStyle.define([
+        { tag: tags.comment, color: "var(--text-secondary)" },
+        { tag: tags.meta, color: "var(--text-secondary)" },
+        { tag: tags.heading, color: "var(--text)", fontWeight: "600" },
+        { tag: tags.strong, color: "var(--text)", fontWeight: "600" },
+        { tag: tags.emphasis, color: "var(--text)", fontStyle: "italic" },
+        {
+            tag: [
+                tags.keyword,
+                tags.atom,
+                tags.number,
+                tags.bool,
+                tags.string,
+                tags.operator,
+                tags.definition(tags.variableName),
+                tags.function(tags.variableName),
+                tags.typeName,
+                tags.link
+            ],
+            color: "var(--text)"
+        }
+    ]);
+    return {
+        refreshInlineDecorations,
+        refreshMathDecorations,
+        setMathDecorations,
+        inlineMathField,
+        inlineMathPlugin,
+        inlinePlugin,
+        highlightStyle
+    };
+}
 
 export function EditorPane(props: EditorPaneProps) {
     const [mode, setMode] = createSignal<EditorMode>("rich");
@@ -88,29 +192,74 @@ export function EditorPane(props: EditorPaneProps) {
     const [folderName, setFolderName] = createSignal("");
     const [folderFiles, setFolderFiles] = createSignal<LocalFileEntry[]>([]);
     const [folderOpen, setFolderOpen] = createSignal(false);
+    const [bookProjectOpen, setBookProjectOpen] = createSignal(false);
+    const [sourceEditorLoaded, setSourceEditorLoaded] = createSignal(false);
     let editorHost: HTMLDivElement | undefined;
     let openFileInput: HTMLInputElement | undefined;
     let openFolderInput: HTMLInputElement | undefined;
-    let view: EditorView | undefined;
-    const inlineCompartment = new Compartment();
+    let view: CodeMirrorEditorView | undefined;
+    let inlineCompartment: CodeMirrorCompartment | undefined;
     let activeFileHandle: LocalFileHandle | undefined;
     let activeDirectoryHandle: LocalDirectoryHandle | undefined;
     let activeBookHandle: LocalFileHandle | undefined;
     let activeBookDirectoryHandle: LocalDirectoryHandle | undefined;
     let activeBookName: string | undefined;
+    let activeFileBaseline: string | undefined;
+    let activeBookBaseline: BookProject | undefined;
     let recoveryTimer: ReturnType<typeof setTimeout> | undefined;
     let destroyed = false;
     let syncingFromStore = false;
+    let bookReplacementSequence = 0;
     let editorModeWasExplicitlySelected = false;
+    let modeSwitchSequence = 0;
     let richFocus: (() => void) | undefined;
     let richSource: (() => string) | undefined;
     let richNavigate: ((heading: string) => void) | undefined;
+    let e2eSourceHook: (() => string) | undefined;
     const [bookQuery, setBookQuery] = createSignal("");
+    const manuscriptSearchResults = createMemo(() => props.context.bookProjectStore.search(bookQuery()));
     const [replaceText, setReplaceText] = createSignal("");
     const [replaceWith, setReplaceWith] = createSignal("");
+    const [distractionFree, setDistractionFree] = createSignal(false);
+    const [bookReplacements, setBookReplacements] = createSignal<ReadonlyMap<string, BookReplacementHistoryEntry>>(new Map());
+    const bookReplacementHistoryStep = createMemo(() => {
+        const editorStore = props.context.editorStore;
+        editorStore.current();
+        const undoStep = editorStore.nextUndoStep();
+        if (undoStep?.type === "external") {
+            const replacement = bookReplacements().get(undoStep.actionId);
+            if (replacement?.applied === true) return { replacement, redo: false };
+        }
+        const redoStep = editorStore.nextRedoStep();
+        if (redoStep?.type === "external") {
+            const replacement = bookReplacements().get(redoStep.actionId);
+            if (replacement?.applied === false) return { replacement, redo: true };
+        }
+        return undefined;
+    });
+    const bookStore = props.context.bookProjectStore;
+    const [wordCounts, setWordCounts] = createSignal({
+        section: bookStore.getChapterWordCount(bookStore.activeEntryId()),
+        manuscript: bookStore.getManuscriptWordCount()
+    });
+    let wordCountTimer: ReturnType<typeof setTimeout> | undefined;
+    let focusModeButton: HTMLButtonElement | undefined;
 
     onMount(() => {
         void initializeEditor();
+        window.addEventListener("keydown", onFocusModeKeydown, true);
+    });
+
+    createEffect(() => {
+        bookStore.current();
+        const entryId = bookStore.activeEntryId();
+        if (wordCountTimer !== undefined) clearTimeout(wordCountTimer);
+        wordCountTimer = setTimeout(() => {
+            setWordCounts({
+                section: bookStore.getChapterWordCount(entryId),
+                manuscript: bookStore.getManuscriptWordCount()
+            });
+        }, 350);
     });
 
     createEffect(() => {
@@ -119,7 +268,7 @@ export function EditorPane(props: EditorPaneProps) {
         syncingFromStore = true;
         view.dispatch({
             changes: { from: 0, to: view.state.doc.length, insert: source },
-            annotations: Transaction.addToHistory.of(false)
+            annotations: codeMirrorRuntime!.Transaction.addToHistory.of(false)
         });
         syncingFromStore = false;
     });
@@ -127,6 +276,12 @@ export function EditorPane(props: EditorPaneProps) {
     onCleanup(() => {
         destroyed = true;
         if (recoveryTimer !== undefined) clearTimeout(recoveryTimer);
+        if (wordCountTimer !== undefined) clearTimeout(wordCountTimer);
+        window.removeEventListener("keydown", onFocusModeKeydown, true);
+        const sourceHooks = window as unknown as { __markdownEditorSource?: () => string };
+        if (e2eSourceHook !== undefined && sourceHooks.__markdownEditorSource === e2eSourceHook) {
+            delete sourceHooks.__markdownEditorSource;
+        }
         if (view !== undefined) activeEditorViews.delete(view);
         view?.destroy();
         props.editorRef(undefined);
@@ -137,9 +292,10 @@ export function EditorPane(props: EditorPaneProps) {
         let initial = props.context.editorStore.current().source;
         if (initial.length === 0) {
             const recovered = await props.context.draftRecovery.load();
-            if (recovered !== null && recovered.source.length > 0) {
+            if (recovered !== null && (recovered.source.length > 0 || recovered.bookProject !== undefined)) {
                 if (recovered.bookProject !== undefined) {
                     props.context.bookProjectStore.open(recovered.bookProject, recovered.activeEntryId);
+                    setBookProjectOpen(true);
                     const active = props.context.bookProjectStore.select(props.context.bookProjectStore.activeEntryId());
                     initial = active.source;
                     setFileName(active.entry.path);
@@ -157,34 +313,63 @@ export function EditorPane(props: EditorPaneProps) {
             }
         }
         if (destroyed || editorHost === undefined) return;
-        view = new EditorView({
-            state: EditorState.create({ doc: initial, extensions: editorExtensions(mode()) }),
-            parent: editorHost
-        });
-        view.contentDOM.id = mode() === "rich" ? "source-editor" : "editor";
-        view.contentDOM.setAttribute("aria-label", mode() === "rich" ? "Markdown source" : "Markdown editor");
-        view.contentDOM.setAttribute("spellcheck", "false");
-        activeEditorViews.add(view);
+        e2eSourceHook = () => currentSource();
+        if (import.meta.env.MODE === "e2e") {
+            (window as unknown as { __markdownEditorSource?: () => string }).__markdownEditorSource = e2eSourceHook;
+        }
         props.editorRef(() => {
             if (mode() === "rich") richFocus?.();
             else view?.focus();
         });
+        if (mode() !== "rich") await initializeSourceEditor(initial, mode(), mayTakeInitialFocus);
+    }
+
+    async function initializeSourceEditor(
+        source = currentSource(),
+        selectedMode: EditorMode = mode(),
+        mayTakeInitialFocus = false,
+        focusOrigin?: Element | null
+    ): Promise<void> {
+        if (destroyed || editorHost === undefined) return;
+        const runtime = await loadCodeMirrorRuntime();
+        if (destroyed || editorHost === undefined || selectedMode !== mode()) return;
+        inlineCompartment ??= new runtime.Compartment();
+        const currentStoreSource = props.context.editorStore.current().source;
+        const latestSource = selectedMode === mode() ? currentStoreSource : source;
+        view = new runtime.EditorView({
+            state: runtime.EditorState.create({ doc: latestSource, extensions: editorExtensions(selectedMode) }),
+            parent: editorHost
+        });
+        setSourceEditorLoaded(true);
+        if (import.meta.env.MODE === "e2e") {
+            e2eSourceHook = () => view?.state.doc.toString() ?? "";
+            (window as unknown as { __markdownEditorSource?: () => string }).__markdownEditorSource = e2eSourceHook;
+        }
+        view.contentDOM.id = selectedMode === "rich" ? "source-editor" : "editor";
+        view.contentDOM.setAttribute("aria-label", selectedMode === "rich" ? "Markdown source" : "Markdown editor");
+        view.contentDOM.setAttribute("spellcheck", "false");
+        activeEditorViews.add(view);
         if (
-            mode() !== "rich" &&
-            (editorModeWasExplicitlySelected ||
+            selectedMode !== "rich" &&
+            ((editorModeWasExplicitlySelected &&
+                (focusOrigin === undefined || document.activeElement === focusOrigin)) ||
                 (mayTakeInitialFocus && document.activeElement === document.body))
         ) {
             view.focus();
         }
-        if (mode() === "inline" && containsMath(initial)) void loadKatex(view);
+        if (selectedMode === "inline" && containsMath(latestSource)) void loadKatex(view);
     }
 
     function editorExtensions(selectedMode: EditorMode): Extension[] {
+        const runtime = codeMirrorRuntime;
+        const extensions = inlineExtensions;
+        if (runtime === undefined || extensions === undefined || inlineCompartment === undefined) {
+            throw new Error("The source editor has not finished loading.");
+        }
         return [
-            markdown(),
-            syntaxHighlighting(editorHighlightStyle),
-            history(),
-            keymap.of([
+            runtime.markdown(),
+            runtime.syntaxHighlighting(extensions.highlightStyle),
+            runtime.keymap.of([
                 {
                     key: "Mod-s",
                     run: () => {
@@ -204,25 +389,58 @@ export function EditorPane(props: EditorPaneProps) {
                     key: "Mod-y",
                     run: () => performHistoryStep(true)
                 },
-                ...defaultKeymap,
-                ...historyKeymap,
-                ...searchKeymap
+                ...runtime.defaultKeymap,
+                ...runtime.searchKeymap
             ]),
-            EditorView.lineWrapping,
+            runtime.EditorView.lineWrapping,
             inlineCompartment.of(
-                selectedMode === "inline" ? [inlineMathField, inlineMathPlugin, inlinePlugin] : []
+                selectedMode === "inline"
+                    ? [extensions.inlineMathField, extensions.inlineMathPlugin, extensions.inlinePlugin]
+                    : []
             ),
-            EditorView.updateListener.of((update) => {
+            runtime.EditorView.updateListener.of((update) => {
                 if (!update.docChanged) return;
                 if (syncingFromStore) return;
                 const source = update.state.doc.toString();
-                props.onInput(source);
+                forgetUndoneBookReplacements();
+                const changes: EditorHistoryPatch[] = [];
+                update.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
+                    changes.push({
+                        from: fromA,
+                        removed: update.startState.doc.sliceString(fromA, toA),
+                        inserted: inserted.toString()
+                    });
+                });
+                if (changes.length === 1) {
+                    const patch = changes[0];
+                    if (patch !== undefined) {
+                        const paste = update.transactions.some((transaction) =>
+                            (transaction.annotation(runtime.Transaction.userEvent) ?? "").includes("paste")
+                        );
+                        const kind: EditorHistoryChangeKind = paste
+                            ? "paste"
+                            : patch.removed.length === 0
+                              ? "typing"
+                              : patch.inserted.length === 0
+                                ? "deletion"
+                                : "replacement";
+                        props.onInput(source, patch, kind);
+                    } else {
+                        props.onInput(source);
+                    }
+                } else {
+                    // Multi-range changes are uncommon (for example, a
+                    // multi-selection edit). A source diff keeps them in the
+                    // shared history as one safe replacement step.
+                    props.onInput(source);
+                }
+                pruneExpiredBookReplacements();
                 scheduleRecovery(source);
                 if (mode() === "inline" && visibleRangesContainMath(update.view)) {
                     void loadKatex(update.view);
                 }
             }),
-            EditorView.theme(
+            runtime.EditorView.theme(
                 {
                     "&": { height: "100%", backgroundColor: "transparent", color: "var(--text)" },
                     ".cm-scroller": {
@@ -245,17 +463,7 @@ export function EditorPane(props: EditorPaneProps) {
     function scheduleRecovery(source: string): void {
         if (recoveryTimer !== undefined) clearTimeout(recoveryTimer);
         recoveryTimer = setTimeout(() => {
-            const project = props.context.bookProjectStore.current();
-            const isBookProject =
-                project.manifest.entries.length > 1 ||
-                activeBookHandle !== undefined ||
-                activeBookDirectoryHandle !== undefined ||
-                activeBookName !== undefined;
-            void props.context.draftRecovery.save(
-                source,
-                isBookProject ? project : undefined,
-                isBookProject ? props.context.bookProjectStore.activeEntryId() : undefined
-            ).then(
+            void saveRecoveryNow(source).then(
                 () => setFileStatus("Draft recovered automatically on this device."),
                 () =>
                     setFileStatus(
@@ -265,11 +473,61 @@ export function EditorPane(props: EditorPaneProps) {
         }, 600);
     }
 
+    async function saveRecoveryNow(source: string): Promise<void> {
+        const project = props.context.bookProjectStore.current();
+        const includeProject = bookProjectOpen();
+        await props.context.draftRecovery.save(
+            source,
+            includeProject ? project : undefined,
+            includeProject ? props.context.bookProjectStore.activeEntryId() : undefined
+        );
+    }
+
+    async function preserveRecoveryAfterSaveFailure(source: string, operation: string, error: unknown): Promise<void> {
+        if (recoveryTimer !== undefined) clearTimeout(recoveryTimer);
+        recoveryTimer = undefined;
+        try {
+            await saveRecoveryNow(source);
+            setFileStatus(`${operation}: ${errorMessage(error)} A local recovery draft was saved on this device.`);
+        } catch (recoveryError) {
+            setFileStatus(`${operation}: ${errorMessage(error)} Recovery could not be saved: ${errorMessage(recoveryError)}`);
+        }
+    }
+
+    async function assertFileUnchanged(handle: LocalFileHandle, baseline: string | undefined): Promise<void> {
+        if (baseline === undefined) return;
+        const current = await (await handle.getFile()).text();
+        if (current !== baseline) {
+            throw new Error("This file changed outside the editor. Reopen it before saving, or use Save as to keep both versions.");
+        }
+    }
+
+    async function assertBookUnchanged(): Promise<void> {
+        const baseline = activeBookBaseline;
+        if (baseline === undefined) return;
+        let current: BookProject | null;
+        if (activeBookDirectoryHandle !== undefined) {
+            current = await props.context.bookProjectFiles.readFolder(activeBookDirectoryHandle);
+        } else if (activeBookHandle !== undefined) {
+            const file = await activeBookHandle.getFile();
+            current = await props.context.bookProjectFiles.readArchive(new Uint8Array(await file.arrayBuffer()));
+        } else {
+            return;
+        }
+        if (current === null || !sameBookProject(current, baseline)) {
+            throw new Error("This book changed outside the editor. Reopen it before saving, or use Save book as to keep both versions.");
+        }
+    }
+
     function replaceDocument(source: string, name: string, handle?: LocalFileHandle): void {
+        setBookProjectOpen(false);
+        setBookReplacements(new Map());
         activeFileHandle = handle;
+        activeFileBaseline = handle === undefined ? undefined : source;
         activeBookHandle = undefined;
         activeBookDirectoryHandle = undefined;
         activeBookName = undefined;
+        activeBookBaseline = undefined;
         activeDirectoryHandle = undefined;
         setFileName(name);
         props.context.bookProjectStore.resetToMarkdown(source, removeExtension(name));
@@ -278,7 +536,7 @@ export function EditorPane(props: EditorPaneProps) {
         scheduleRecovery(source);
         if (view !== undefined) {
             view.setState(
-                EditorState.create({ doc: source, extensions: editorExtensions(mode()) })
+                codeMirrorRuntime!.EditorState.create({ doc: source, extensions: editorExtensions(mode()) })
             );
             view.focus();
             if (mode() === "inline" && containsMath(source)) void loadKatex(view);
@@ -289,6 +547,9 @@ export function EditorPane(props: EditorPaneProps) {
         try {
             const handle = await props.context.localDocuments.pickOpenFile();
             if (handle === undefined) {
+                if (openFileInput !== undefined) {
+                    openFileInput.accept = ".md,.markdown,.mdown,.mkd,.txt,text/markdown,text/plain";
+                }
                 openFileInput?.click();
                 return;
             }
@@ -309,6 +570,24 @@ export function EditorPane(props: EditorPaneProps) {
         }
     }
 
+    async function openBook(): Promise<void> {
+        try {
+            const handle = await props.context.localDocuments.pickOpenBookFile();
+            if (handle === undefined) {
+                if (openFileInput !== undefined) openFileInput.accept = ".mdbook,application/zip";
+                openFileInput?.click();
+                return;
+            }
+            const file = await handle.getFile();
+            if (!/\.mdbook$/i.test(file.name)) throw new Error("Choose a .mdbook project archive.");
+            const project = await props.context.bookProjectFiles.readArchive(new Uint8Array(await file.arrayBuffer()));
+            openBookProject(project, file.name, handle);
+            setFileStatus(`Opened ${file.name}.`);
+        } catch (error) {
+            if (!isPickerCancellation(error)) setFileStatus(`Could not open the book: ${errorMessage(error)}`);
+        }
+    }
+
     async function openFolder(): Promise<void> {
         try {
             const directory = await props.context.localDocuments.pickDirectory();
@@ -322,12 +601,16 @@ export function EditorPane(props: EditorPaneProps) {
                 setFileStatus(`Opened the ${directory.name} book folder.`);
                 return;
             }
+            setBookProjectOpen(false);
+            setBookReplacements(new Map());
             const files = await props.context.localDocuments.listMarkdownFiles(directory);
             activeFileHandle = undefined;
+            activeFileBaseline = undefined;
             activeDirectoryHandle = directory;
             activeBookHandle = undefined;
             activeBookDirectoryHandle = undefined;
             activeBookName = undefined;
+            activeBookBaseline = undefined;
             setFolderName(directory.name);
             setFolderFiles(files);
             setFolderOpen(true);
@@ -344,14 +627,20 @@ export function EditorPane(props: EditorPaneProps) {
         try {
             if (activeBookDirectoryHandle !== undefined) {
                 props.context.bookProjectStore.updateActive(source);
-                await props.context.bookProjectFiles.writeFolder(activeBookDirectoryHandle, props.context.bookProjectStore.current());
+                const project = props.context.bookProjectStore.current();
+                await assertBookUnchanged();
+                await props.context.bookProjectFiles.writeFolder(activeBookDirectoryHandle, project);
+                activeBookBaseline = cloneBookProject(project);
                 setFileStatus(`Saved the ${folderName()} book folder.`);
                 return;
             }
             if (activeBookHandle !== undefined) {
                 props.context.bookProjectStore.updateActive(source);
-                const archive = await props.context.bookProjectFiles.writeArchive(props.context.bookProjectStore.current());
+                const project = props.context.bookProjectStore.current();
+                await assertBookUnchanged();
+                const archive = await props.context.bookProjectFiles.writeArchive(project);
                 await props.context.localDocuments.writeFile(activeBookHandle, archive);
+                activeBookBaseline = cloneBookProject(project);
                 setFileStatus(`Saved ${activeBookName ?? "the book project"}.`);
                 return;
             }
@@ -363,25 +652,33 @@ export function EditorPane(props: EditorPaneProps) {
                 return;
             }
             if (activeFileHandle !== undefined) {
+                await assertFileUnchanged(activeFileHandle, activeFileBaseline);
                 await props.context.localDocuments.writeFile(activeFileHandle, source);
+                activeFileBaseline = source;
                 setFileStatus(`Saved ${fileName()}.`);
                 return;
             }
             if (activeDirectoryHandle !== undefined) {
+                const existing = await activeDirectoryHandle.getFileHandle(fileName()).catch((error: unknown) => {
+                    if (isNotFoundError(error)) return undefined;
+                    throw error;
+                });
+                if (existing !== undefined) {
+                    throw new Error("A file with this name already exists in the selected folder. Use Save as to choose another file.");
+                }
                 const handle = await activeDirectoryHandle.getFileHandle(fileName(), {
                     create: true
                 });
                 await props.context.localDocuments.writeFile(handle, source);
                 activeFileHandle = handle;
+                activeFileBaseline = source;
                 setFileStatus(`Saved ${fileName()} in ${folderName()}.`);
                 return;
             }
             downloadSource(source, fileName());
             setFileStatus(`Downloaded ${fileName()}; choose Save as to write to a local file.`);
         } catch (error) {
-            setFileStatus(
-                `Could not save ${fileName()}: ${errorMessage(error)} Your local recovery draft is preserved.`
-            );
+            await preserveRecoveryAfterSaveFailure(source, `Could not save ${fileName()}`, error);
         }
     }
 
@@ -391,21 +688,49 @@ export function EditorPane(props: EditorPaneProps) {
         try {
             const handle = await props.context.localDocuments.pickSaveFile(fileName());
             if (handle === undefined) {
-                downloadSource(source, fileName());
-                setFileStatus(`Downloaded ${fileName()}.`);
+                const downloadName = fileNameFromPath(fileName());
+                downloadSource(source, downloadName);
+                activeFileHandle = undefined;
+                activeFileBaseline = undefined;
+                activeDirectoryHandle = undefined;
+                activeBookHandle = undefined;
+                activeBookDirectoryHandle = undefined;
+                activeBookName = undefined;
+                activeBookBaseline = undefined;
+                detachBookAsMarkdown(source, downloadName);
+                setFileName(downloadName);
+                setFileStatus(`Downloaded ${downloadName}.`);
                 return;
             }
             await props.context.localDocuments.writeFile(handle, source);
             activeFileHandle = handle;
+            activeFileBaseline = source;
+            activeBookHandle = undefined;
+            activeBookDirectoryHandle = undefined;
+            activeBookName = undefined;
+            activeBookBaseline = undefined;
+            activeDirectoryHandle = undefined;
+            detachBookAsMarkdown(source, handle.name);
+            setBookProjectOpen(false);
             setFileName(handle.name);
             setFileStatus(`Saved ${handle.name}.`);
         } catch (error) {
             if (!isPickerCancellation(error)) {
-                setFileStatus(
-                    `Could not save the file: ${errorMessage(error)} Your local recovery draft is preserved.`
-                );
+                await preserveRecoveryAfterSaveFailure(source, "Could not save the file", error);
             }
         }
+    }
+
+    function detachBookAsMarkdown(source: string, name: string): void {
+        if (!props.context.bookProjectStore.isBookProject()) return;
+        props.context.bookProjectStore.resetToMarkdown(source, removeExtension(name));
+        props.context.editorStore.reset(source);
+        setBookReplacements(new Map());
+        props.onHistoryStep();
+        setBookProjectOpen(false);
+        setFolderOpen(false);
+        setFolderFiles([]);
+        scheduleRecovery(source);
     }
 
     async function saveBookAs(): Promise<void> {
@@ -415,7 +740,12 @@ export function EditorPane(props: EditorPaneProps) {
             props.context.bookProjectStore.updateActive(source);
             const project = props.context.bookProjectStore.current();
             if (activeBookDirectoryHandle !== undefined) {
+                await assertBookUnchanged();
                 await props.context.bookProjectFiles.writeFolder(activeBookDirectoryHandle, project);
+                activeBookBaseline = cloneBookProject(project);
+                props.context.bookProjectStore.markAsBookProject();
+                setBookProjectOpen(true);
+                scheduleRecovery(source);
                 setFileStatus(`Saved the ${folderName()} book folder.`);
                 return;
             }
@@ -427,18 +757,36 @@ export function EditorPane(props: EditorPaneProps) {
                     new Blob([archive as BlobPart], { type: "application/zip" }),
                     suggestedName
                 );
+                activeFileHandle = undefined;
+                activeFileBaseline = undefined;
+                activeBookHandle = undefined;
+                activeBookDirectoryHandle = undefined;
                 activeBookName = suggestedName;
+                activeBookBaseline = cloneBookProject(project);
+                props.context.bookProjectStore.markAsBookProject();
+                setBookProjectOpen(true);
+                setFolderOpen(true);
+                setFileName(suggestedName);
+                scheduleRecovery(source);
                 setFileStatus(`Downloaded ${suggestedName}.`);
                 return;
             }
             await props.context.localDocuments.writeFile(handle, archive);
+            activeFileHandle = undefined;
+            activeFileBaseline = undefined;
+            activeDirectoryHandle = undefined;
             activeBookHandle = handle;
             activeBookName = handle.name;
+            activeBookBaseline = cloneBookProject(project);
+            props.context.bookProjectStore.markAsBookProject();
+            setBookProjectOpen(true);
+            setFolderOpen(true);
             setFileName(handle.name);
+            scheduleRecovery(source);
             setFileStatus(`Saved ${handle.name}.`);
         } catch (error) {
             if (!isPickerCancellation(error)) {
-                setFileStatus(`Could not save the book: ${errorMessage(error)} Your local recovery draft is preserved.`);
+                await preserveRecoveryAfterSaveFailure(source, "Could not save the book", error);
             }
         }
     }
@@ -452,6 +800,7 @@ export function EditorPane(props: EditorPaneProps) {
         if (bookEntry !== undefined) {
             try {
                 const selected = props.context.bookProjectStore.select(bookEntry.id);
+                setBookReplacements(new Map());
                 setFileName(bookEntry.path);
                 props.context.editorStore.reset(selected.source);
                 props.onInput(selected.source);
@@ -497,20 +846,36 @@ export function EditorPane(props: EditorPaneProps) {
         });
     }
 
-    function onFallbackFolderChange(event: Event): void {
+    async function onFallbackFolderChange(event: Event): Promise<void> {
         const input = event.currentTarget as HTMLInputElement;
         const files = Array.from(input.files ?? []);
         input.value = "";
+        try {
+            const project = await props.context.bookProjectFiles.readFiles(files);
+            if (project !== null) {
+                const archiveName = `${slug(project.manifest.metadata.title)}.mdbook`;
+                openBookProject(project, archiveName);
+                setFileStatus(`Opened the ${project.manifest.metadata.title} book from the selected folder. Save book as creates a .mdbook copy.`);
+                return;
+            }
+        } catch (error) {
+            setFileStatus(`Could not open the selected book folder: ${errorMessage(error)}`);
+            return;
+        }
         const entries = files
             .filter((file) => /\.(?:md|markdown|mdown|mkd|txt)$/i.test(file.name))
             .map((file) => ({ path: file.webkitRelativePath || file.name, file }));
+        setBookProjectOpen(false);
+        setBookReplacements(new Map());
         setFolderFiles(entries.sort((left, right) => left.path.localeCompare(right.path)));
         setFolderName(entries[0]?.path.split(/[\\/]/)[0] ?? "Selected folder");
         activeFileHandle = undefined;
+        activeFileBaseline = undefined;
         activeDirectoryHandle = undefined;
         activeBookHandle = undefined;
         activeBookDirectoryHandle = undefined;
         activeBookName = undefined;
+        activeBookBaseline = undefined;
         setFolderOpen(true);
         setFileStatus(`Loaded ${entries.length} Markdown files from the selected folder.`);
     }
@@ -533,14 +898,18 @@ export function EditorPane(props: EditorPaneProps) {
         const source = project.files[entry.path];
         if (typeof source !== "string") throw new Error(`The Markdown file for “${entry.title}” is missing.`);
         props.context.bookProjectStore.open(project, entry.id);
+        setBookProjectOpen(true);
+        setBookReplacements(new Map());
         props.context.editorStore.reset(source);
         props.onInput(source);
-        scheduleRecovery(source);
         activeFileHandle = undefined;
+        activeFileBaseline = undefined;
         activeDirectoryHandle = undefined;
         activeBookHandle = fileHandle;
         activeBookDirectoryHandle = directoryHandle;
         activeBookName = name;
+        activeBookBaseline = cloneBookProject(project);
+        scheduleRecovery(source);
         setFileName(entry.path);
         setFolderName(project.manifest.metadata.title);
         setFolderFiles(project.manifest.entries.map((bookEntry) => ({
@@ -552,16 +921,30 @@ export function EditorPane(props: EditorPaneProps) {
         setFolderOpen(true);
     }
 
-    function selectMode(next: EditorMode): void {
+    async function selectMode(next: EditorMode): Promise<void> {
         if (next === mode()) return;
+        const sequence = ++modeSwitchSequence;
+        const previousMode = mode();
         const focusOrigin = document.activeElement;
-        if (mode() === "rich") {
-            const source = currentSource();
+        const source = currentSource();
+        if (previousMode === "rich") {
             props.onInput(source);
             scheduleRecovery(source);
         }
+        props.context.editorStore.breakGroup();
         editorModeWasExplicitlySelected = true;
         setMode(next);
+        if (next !== "rich" && view === undefined) {
+            try {
+                await initializeSourceEditor(source, next, false, focusOrigin);
+            } catch (error) {
+                if (sequence !== modeSwitchSequence) return;
+                setMode(previousMode);
+                setFileStatus(`The source editor could not be loaded: ${errorMessage(error)}`);
+                return;
+            }
+        }
+        if (sequence !== modeSwitchSequence) return;
         view?.contentDOM.setAttribute("id", next === "rich" ? "source-editor" : "editor");
         view?.contentDOM.setAttribute(
             "aria-label",
@@ -569,8 +952,10 @@ export function EditorPane(props: EditorPaneProps) {
         );
         if (view === undefined) return;
         view.dispatch({
-            effects: inlineCompartment.reconfigure(
-                next === "inline" ? [inlineMathField, inlineMathPlugin, inlinePlugin] : []
+            effects: inlineCompartment!.reconfigure(
+                next === "inline"
+                    ? [inlineExtensions!.inlineMathField, inlineExtensions!.inlineMathPlugin, inlineExtensions!.inlinePlugin]
+                    : []
             )
         });
         if (next === "inline" && containsMath(view.state.doc.toString())) void loadKatex(view);
@@ -590,19 +975,93 @@ export function EditorPane(props: EditorPaneProps) {
     }
 
     function performHistoryStep(redo: boolean): boolean {
-        const changed = redo ? props.context.editorStore.redo() : props.context.editorStore.undo();
-        if (changed) props.onHistoryStep();
-        return changed;
+        const editorStore = props.context.editorStore;
+        const step = redo ? editorStore.redoStep() : editorStore.undoStep();
+        if (step === undefined) return false;
+        if (step.type === "external") {
+            applyBookReplacement(step.actionId, redo, step.source);
+        } else {
+            props.onHistoryStep();
+        }
+        pruneExpiredBookReplacements();
+        return true;
+    }
+
+    function applyBookReplacement(actionId: string, applied: boolean, activeSource: string): void {
+        const replacement = bookReplacements().get(actionId);
+        if (replacement === undefined || replacement.applied === applied) {
+            props.context.bookProjectStore.updateActive(activeSource);
+            props.onHistoryStep();
+            setFileStatus("The manuscript replacement history could not be restored completely.");
+            return;
+        }
+        const currentProject = props.context.bookProjectStore.current();
+        const files = { ...currentProject.files };
+        for (const [path, patches] of Object.entries(replacement.changes)) {
+            const source = files[path];
+            if (typeof source !== "string") {
+                props.context.bookProjectStore.updateActive(activeSource);
+                props.onHistoryStep();
+                setFileStatus("A section is unavailable, so the manuscript replacement could not be restored safely.");
+                return;
+            }
+            const restored = applyReplacementPatches(source, patches, applied);
+            if (restored === undefined) {
+                props.context.bookProjectStore.updateActive(activeSource);
+                props.onHistoryStep();
+                setFileStatus("A section changed outside the undo history, so the manuscript replacement could not be restored safely.");
+                return;
+            }
+            files[path] = restored;
+        }
+        const project = { ...currentProject, files };
+        const activeEntry = project.manifest.entries.find((entry) => entry.id === replacement.activeEntryId);
+        if (activeEntry === undefined || files[activeEntry.path] !== activeSource) {
+            props.context.bookProjectStore.updateActive(activeSource);
+            props.onHistoryStep();
+            setFileStatus("The active section no longer matches the manuscript replacement history.");
+            return;
+        }
+        props.context.bookProjectStore.open(project, replacement.activeEntryId);
+        props.context.bookProjectStore.select(replacement.activeEntryId);
+        setBookReplacements((current) => {
+            const next = new Map(current);
+            next.set(actionId, { ...replacement, applied });
+            return next;
+        });
+        props.onHistoryStep();
+        scheduleRecovery(activeSource);
+        setFileStatus(applied ? "Reapplied the manuscript replacement." : "Undid the manuscript replacement.");
+    }
+
+    function forgetUndoneBookReplacements(): void {
+        const editorStore = props.context.editorStore;
+        setBookReplacements((current) => {
+            const next = new Map([...current].filter(([actionId, entry]) =>
+                entry.applied && editorStore.hasExternalAction(actionId)
+            ));
+            return next.size === current.size ? current : next;
+        });
+    }
+
+    function pruneExpiredBookReplacements(): void {
+        const editorStore = props.context.editorStore;
+        setBookReplacements((current) => {
+            const next = new Map([...current].filter(([actionId]) => editorStore.hasExternalAction(actionId)));
+            return next.size === current.size ? current : next;
+        });
     }
 
     function activateBookEntry(entryId: string, line?: number): void {
         try {
+            setBookReplacements(new Map());
             const selected = props.context.bookProjectStore.select(entryId);
             setFileName(selected.entry.path);
             props.context.editorStore.reset(selected.source);
             props.onInput(selected.source);
             scheduleRecovery(selected.source);
             setFileStatus(`Opened ${selected.entry.title}.`);
+            if (window.innerWidth <= 600) setFolderOpen(false);
             if (line !== undefined) {
                 requestAnimationFrame(() => {
                     const source = props.context.editorStore.current().source;
@@ -654,6 +1113,7 @@ export function EditorPane(props: EditorPaneProps) {
     function removeBookEntry(entryId: string, title: string): void {
         if (!window.confirm(`Delete “${title}” from this book? This cannot be undone.`)) return;
         try {
+            setBookReplacements(new Map());
             const wasActive = props.context.bookProjectStore.activeEntryId() === entryId;
             props.context.bookProjectStore.removeEntry(entryId);
             if (wasActive) activateBookEntry(props.context.bookProjectStore.activeEntryId());
@@ -704,11 +1164,56 @@ export function EditorPane(props: EditorPaneProps) {
 
     function replaceAcrossBook(): void {
         if (replaceText().length === 0) return;
-        const count = props.context.bookProjectStore.replaceAll(replaceText(), replaceWith());
-        const active = props.context.bookProjectStore.select(props.context.bookProjectStore.activeEntryId());
-        props.context.editorStore.reset(active.source);
-        props.onInput(active.source);
-        setFileStatus(count === 0 ? "No matching text was found." : `Replaced ${count} occurrence${count === 1 ? "" : "s"} across the manuscript.`);
+        const store = props.context.bookProjectStore;
+        const before = store.current();
+        const activeEntryId = store.activeEntryId();
+        const count = store.replaceAll(replaceText(), replaceWith());
+        if (count === 0) {
+            setFileStatus("No matching text was found.");
+            return;
+        }
+        const after = store.current();
+        const changes: Record<string, readonly EditorHistoryPatch[]> = {};
+        for (const entry of before.manifest.entries) {
+            const oldSource = before.files[entry.path];
+            const newSource = after.files[entry.path];
+            if (typeof oldSource === "string" && typeof newSource === "string" && oldSource !== newSource) {
+                const patches = findReplacementPatches(oldSource, replaceText().trim(), replaceWith());
+                if (applyReplacementPatches(oldSource, patches, true) !== newSource) {
+                    props.context.editorStore.reset(store.select(activeEntryId).source);
+                    setBookReplacements(new Map());
+                    props.onHistoryStep();
+                    scheduleRecovery(newSource);
+                    setFileStatus("The text was replaced, but its undo record could not be created safely.");
+                    return;
+                }
+                changes[entry.path] = patches;
+            }
+        }
+        if (Object.keys(changes).length === 0) {
+            setFileStatus("The matching text already had that value, so nothing changed.");
+            return;
+        }
+        const retainedPayloadBytes = replacementPayloadSize(changes);
+        const active = store.select(activeEntryId);
+        const actionId = `book-replace-${Date.now().toString(36)}-${(++bookReplacementSequence).toString(36)}`;
+        const recorded = props.context.editorStore.recordExternalTransition(actionId, active.source, retainedPayloadBytes);
+        if (!recorded) {
+            setBookReplacements(new Map());
+            props.onHistoryStep();
+            scheduleRecovery(active.source);
+            setFileStatus(`Replaced ${count} occurrence${count === 1 ? "" : "s"}. This large replacement exceeds the undo history limit.`);
+            return;
+        }
+        const editorStore = props.context.editorStore;
+        const nextReplacements = new Map([...bookReplacements()].filter(([id, entry]) =>
+            entry.applied && editorStore.hasExternalAction(id)
+        ));
+        nextReplacements.set(actionId, { actionId, activeEntryId, changes, applied: true });
+        setBookReplacements(nextReplacements);
+        props.onHistoryStep();
+        scheduleRecovery(active.source);
+        setFileStatus(`Replaced ${count} occurrence${count === 1 ? "" : "s"} across the manuscript. Undo is available here and with Ctrl+Z.`);
     }
 
     function outlineItems(): { title: string; line: number; level: number }[] {
@@ -732,21 +1237,30 @@ export function EditorPane(props: EditorPaneProps) {
         return items;
     }
 
-    function totalBookWords(): number {
-        const project = props.context.bookProjectStore.current();
-        return project.manifest.entries.reduce((total, entry) => {
-            const source = project.files[entry.path];
-            return total + (typeof source === "string" ? source.trim().split(/\s+/u).filter(Boolean).length : 0);
-        }, 0);
+    function onFocusModeKeydown(event: KeyboardEvent): void {
+        if (event.key !== "Escape" || !distractionFree()) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setDistractionFree(false);
+        requestAnimationFrame(() => focusModeButton?.focus());
     }
 
-    function activeSectionWords(): number {
-        return props.context.editorStore.current().source.trim().split(/\s+/u).filter(Boolean).length;
+    function toggleDistractionFree(): void {
+        const next = !distractionFree();
+        setDistractionFree(next);
+        if (next) {
+            requestAnimationFrame(() => {
+                if (mode() === "rich") richFocus?.();
+                else view?.focus();
+            });
+        } else {
+            requestAnimationFrame(() => focusModeButton?.focus());
+        }
     }
 
     return (
-        <section class="pane pane--editor" aria-label="Editor pane">
-            <div class="editor-toolbar" role="toolbar" aria-label="Editor mode">
+        <section class="pane pane--editor" classList={{ "pane--editor-focus": distractionFree() }} aria-label="Editor pane">
+            <div class="editor-toolbar" role="toolbar" aria-label="Editor controls">
                 <div class="editor-toolbar__files">
                     <button
                         type="button"
@@ -758,7 +1272,7 @@ export function EditorPane(props: EditorPaneProps) {
                     <button
                         type="button"
                         class="editor-file-action"
-                        onClick={() => void openFile()}
+                        onClick={() => void openBook()}
                     >
                         Open book
                     </button>
@@ -790,6 +1304,7 @@ export function EditorPane(props: EditorPaneProps) {
                         type="button"
                         class="editor-file-action"
                         aria-expanded={folderOpen()}
+                        aria-controls={folderOpen() ? "manuscript-sidebar" : undefined}
                         onClick={() => setFolderOpen((open) => !open)}
                     >
                         Manuscript
@@ -805,7 +1320,7 @@ export function EditorPane(props: EditorPaneProps) {
                             type="button"
                             class="editor-mode"
                             aria-pressed={mode() === "rich"}
-                            onClick={() => selectMode("rich")}
+                            onClick={() => { void selectMode("rich"); }}
                         >
                             Rich
                         </button>
@@ -813,7 +1328,7 @@ export function EditorPane(props: EditorPaneProps) {
                             type="button"
                             class="editor-mode"
                             aria-pressed={mode() === "source"}
-                            onClick={() => selectMode("source")}
+                            onClick={() => { void selectMode("source"); }}
                         >
                             Source
                         </button>
@@ -821,30 +1336,53 @@ export function EditorPane(props: EditorPaneProps) {
                             type="button"
                             class="editor-mode"
                             aria-pressed={mode() === "inline"}
-                            onClick={() => selectMode("inline")}
+                            onClick={() => { void selectMode("inline"); }}
                         >
                             Inline
                         </button>
                     </div>
+                    <button
+                        type="button"
+                        class="editor-focus-toggle"
+                        aria-pressed={distractionFree()}
+                        aria-keyshortcuts="Escape"
+                        onClick={toggleDistractionFree}
+                        ref={(element) => (focusModeButton = element)}
+                    >
+                        {distractionFree() ? "Exit focus mode" : "Focus mode"}
+                    </button>
                 </div>
             </div>
             <div class="editor-workspace">
                 <Show when={folderOpen()}>
-                    <aside class="file-sidebar" aria-label={`${folderName()} files`}>
+                    <aside
+                        id="manuscript-sidebar"
+                        class="file-sidebar"
+                        aria-label={
+                            bookProjectOpen()
+                                ? `${folderName()} manuscript tools`
+                                : `${folderName()} files`
+                        }
+                    >
                         <div class="file-sidebar__header">
                             <span class="file-sidebar__title">Manuscript</span>
                             <button
                                 type="button"
                                 class="file-sidebar__close"
-                                aria-label="Close folder sidebar"
+                                aria-label="Close manuscript sidebar and return to the editor"
                                 onClick={() => setFolderOpen(false)}
                             >
                                 ×
                             </button>
                         </div>
+                        <Show when={bookProjectOpen()}>
                         <div class="book-tools">
                             <Show when={props.context.bookProjectStore.current().manifest.entries.length > 0}>
-                                <p class="book-tools__count">{activeSectionWords().toLocaleString()} words in this section · {totalBookWords().toLocaleString()} words in all sections</p>
+                                <p class="book-tools__count">
+                                    <span>{wordCounts().section.toLocaleString()} words in this section</span>
+                                    <span aria-hidden="true"> · </span>
+                                    <span>{wordCounts().manuscript.toLocaleString()} words in the manuscript</span>
+                                </p>
                             </Show>
                             <div class="book-tools__actions">
                                 <button type="button" onClick={() => addBookEntry("chapter")}>Add chapter</button>
@@ -877,32 +1415,46 @@ export function EditorPane(props: EditorPaneProps) {
                             </nav>
                             <details class="book-tools__details">
                                 <summary>Book details</summary>
-                                <label>Title<input value={props.context.bookProjectStore.current().manifest.metadata.title} onInput={(event) => updateBookMetadata({ title: event.currentTarget.value })} /></label>
-                                <label>Subtitle<input value={props.context.bookProjectStore.current().manifest.metadata.subtitle ?? ""} onInput={(event) => updateBookMetadata({ subtitle: event.currentTarget.value })} /></label>
-                                <label>Authors<input value={props.context.bookProjectStore.current().manifest.metadata.authors.join(", ")} onInput={(event) => updateBookMetadata({ authors: event.currentTarget.value.split(",").map((author) => author.trim()).filter(Boolean) })} /></label>
-                                <label>Language<input value={props.context.bookProjectStore.current().manifest.metadata.language} onInput={(event) => updateBookMetadata({ language: event.currentTarget.value })} /></label>
-                                <label>Publisher<input value={props.context.bookProjectStore.current().manifest.metadata.publisher ?? ""} onInput={(event) => updateBookMetadata({ publisher: event.currentTarget.value })} /></label>
-                                <label>ISBN<input value={props.context.bookProjectStore.current().manifest.metadata.isbn ?? ""} onInput={(event) => updateBookMetadata({ isbn: event.currentTarget.value })} /></label>
-                                <label>Description<textarea value={props.context.bookProjectStore.current().manifest.metadata.description ?? ""} onInput={(event) => updateBookMetadata({ description: event.currentTarget.value })} /></label>
-                                <label>Cover<input type="file" accept="image/png,image/jpeg,image/gif,image/svg+xml,image/webp,image/avif" onChange={(event) => { void importBookAsset(event.currentTarget.files?.[0], "cover"); event.currentTarget.value = ""; }} /></label>
-                                <label>BibTeX references<input type="file" accept=".bib,text/plain" onChange={(event) => { void importBookAsset(event.currentTarget.files?.[0], "bibliography"); event.currentTarget.value = ""; }} /></label>
-                                <label>Citation style (CSL)<input type="file" accept=".csl,application/xml,text/xml" onChange={(event) => { void importBookAsset(event.currentTarget.files?.[0], "citation-style"); event.currentTarget.value = ""; }} /></label>
+                                <label>Title<input name="book-title" autocomplete="off" value={props.context.bookProjectStore.current().manifest.metadata.title} onInput={(event) => updateBookMetadata({ title: event.currentTarget.value })} /></label>
+                                <label>Subtitle<input name="book-subtitle" autocomplete="off" value={props.context.bookProjectStore.current().manifest.metadata.subtitle ?? ""} onInput={(event) => updateBookMetadata({ subtitle: event.currentTarget.value })} /></label>
+                                <label>Authors<input name="book-authors" autocomplete="off" value={props.context.bookProjectStore.current().manifest.metadata.authors.join(", ")} onInput={(event) => updateBookMetadata({ authors: event.currentTarget.value.split(",").map((author) => author.trim()).filter(Boolean) })} /></label>
+                                <label>Language<input name="book-language" autocomplete="off" value={props.context.bookProjectStore.current().manifest.metadata.language} onInput={(event) => updateBookMetadata({ language: event.currentTarget.value })} /></label>
+                                <label>Publisher<input name="book-publisher" autocomplete="off" value={props.context.bookProjectStore.current().manifest.metadata.publisher ?? ""} onInput={(event) => updateBookMetadata({ publisher: event.currentTarget.value })} /></label>
+                                <label>ISBN<input name="book-isbn" autocomplete="off" value={props.context.bookProjectStore.current().manifest.metadata.isbn ?? ""} onInput={(event) => updateBookMetadata({ isbn: event.currentTarget.value })} /></label>
+                                <label>Description<textarea name="book-description" autocomplete="off" value={props.context.bookProjectStore.current().manifest.metadata.description ?? ""} onInput={(event) => updateBookMetadata({ description: event.currentTarget.value })} /></label>
+                                <label>Cover<input name="book-cover" type="file" accept="image/png,image/jpeg,image/gif,image/svg+xml,image/webp,image/avif" onChange={(event) => { void importBookAsset(event.currentTarget.files?.[0], "cover"); event.currentTarget.value = ""; }} /></label>
+                                <label>BibTeX references<input name="book-bibliography" type="file" accept=".bib,text/plain" onChange={(event) => { void importBookAsset(event.currentTarget.files?.[0], "bibliography"); event.currentTarget.value = ""; }} /></label>
+                                <label>Citation style (CSL)<input name="book-citation-style" type="file" accept=".csl,application/xml,text/xml" onChange={(event) => { void importBookAsset(event.currentTarget.files?.[0], "citation-style"); event.currentTarget.value = ""; }} /></label>
                             </details>
-                            <label class="book-tools__search">Find in manuscript<input type="search" value={bookQuery()} onInput={(event) => setBookQuery(event.currentTarget.value)} placeholder="Search all sections" /></label>
+                            <label class="book-tools__search">Find in manuscript<input name="manuscript-search" type="search" autocomplete="off" value={bookQuery()} onInput={(event) => setBookQuery(event.currentTarget.value)} placeholder="Search all sections…" /></label>
                             <Show when={bookQuery().trim().length > 0}>
                                 <ul class="book-tools__matches">
-                                    <For each={props.context.bookProjectStore.search(bookQuery()).slice(0, 30)}>
+                                    <For each={manuscriptSearchResults().slice(0, 30)}>
                                         {(match) => <li><button type="button" onClick={() => activateBookEntry(match.entryId, match.line)}><strong>{match.title}, line {match.line}</strong><span>{match.excerpt}</span></button></li>}
                                     </For>
                                 </ul>
+                                <Show when={manuscriptSearchResults().length === 0}>
+                                    <p class="book-tools__empty">No matches in this manuscript.</p>
+                                </Show>
                             </Show>
                             <details class="book-tools__details">
                                 <summary>Replace across manuscript</summary>
-                                <label>Find<input value={replaceText()} onInput={(event) => setReplaceText(event.currentTarget.value)} /></label>
-                                <label>Replace with<input value={replaceWith()} onInput={(event) => setReplaceWith(event.currentTarget.value)} /></label>
+                                <label>Find<input name="manuscript-replace-find" autocomplete="off" value={replaceText()} onInput={(event) => setReplaceText(event.currentTarget.value)} /></label>
+                                <label>Replace with<input name="manuscript-replace-with" autocomplete="off" value={replaceWith()} onInput={(event) => setReplaceWith(event.currentTarget.value)} /></label>
                                 <button type="button" disabled={replaceText().length === 0} onClick={() => replaceAcrossBook()}>Replace all</button>
+                                <Show when={bookReplacementHistoryStep()}>
+                                    {(historyStep) => (
+                                        <button
+                                            type="button"
+                                            class="book-tools__replace-undo"
+                                            onClick={() => performHistoryStep(historyStep().redo)}
+                                        >
+                                            {historyStep().redo ? "Redo replace all" : "Undo replace all"}
+                                        </button>
+                                    )}
+                                </Show>
                             </details>
-                            <div class="book-tools__outline" aria-label="Current section outline">
+                            <nav class="book-tools__outline" aria-label="Current section outline">
                                 <h3>Outline</h3>
                                 <Show when={outlineItems().length > 0} fallback={<p>No headings in this section.</p>}>
                                     <ul><For each={outlineItems()}>{(heading) => <li><button type="button" classList={{ [`level-${heading.level}`]: true }} onClick={() => {
@@ -914,8 +1466,9 @@ export function EditorPane(props: EditorPaneProps) {
                                         }
                                     }}>{heading.title}</button></li>}</For></ul>
                                 </Show>
-                            </div>
+                            </nav>
                         </div>
+                        </Show>
                         <div class="file-sidebar__list">
                             <For each={folderFiles()}>
                                 {(entry) => (
@@ -949,11 +1502,16 @@ export function EditorPane(props: EditorPaneProps) {
                             editorHost = element;
                         }}
                     />
+                    <Show when={mode() !== "rich" && !sourceEditorLoaded()}>
+                        <p class="editor-source-loading" role="status">Loading source editor…</p>
+                    </Show>
                     <RichMarkdownEditor
                         source={() => props.context.editorStore.current().source}
                         active={() => mode() === "rich"}
                         onInput={(source) => {
+                            forgetUndoneBookReplacements();
                             props.onInput(source);
+                            pruneExpiredBookReplacements();
                             scheduleRecovery(source);
                         }}
                         onUndo={(redo) => performHistoryStep(redo)}
@@ -987,7 +1545,7 @@ export function EditorPane(props: EditorPaneProps) {
                     element.setAttribute("webkitdirectory", "");
                     element.setAttribute("directory", "");
                 }}
-                onChange={onFallbackFolderChange}
+                onChange={(event) => { void onFallbackFolderChange(event); }}
             />
         </section>
     );
@@ -999,6 +1557,10 @@ function isPickerCancellation(error: unknown): boolean {
 
 function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : "Unknown local file error.";
+}
+
+function isNotFoundError(error: unknown): boolean {
+    return typeof error === "object" && error !== null && "name" in error && error.name === "NotFoundError";
 }
 
 function fileNameFromPath(path: string): string {
@@ -1015,92 +1577,6 @@ function slug(title: string): string {
     return value.length > 0 ? value : "book";
 }
 
-const inlinePlugin = ViewPlugin.fromClass(
-    class {
-        decorations: DecorationSet;
-
-        constructor(view: EditorView) {
-            this.decorations = inlineDecorations(view);
-        }
-
-        update(update: ViewUpdate): void {
-            if (
-                update.transactions.some((transaction) =>
-                    transaction.effects.some((effect) => effect.is(setMathDecorations))
-                )
-            ) {
-                return;
-            }
-            if (
-                update.docChanged ||
-                update.viewportChanged ||
-                update.transactions.some((transaction) =>
-                    transaction.effects.some((effect) => effect.is(refreshInlineDecorations))
-                )
-            ) {
-                this.decorations = inlineDecorations(update.view);
-            }
-        }
-    },
-    { decorations: (plugin) => plugin.decorations }
-);
-
-const inlineMathField = StateField.define<DecorationSet>({
-    create: () => Decoration.none,
-    update: (decorations, transaction) => {
-        decorations = decorations.map(transaction.changes);
-        for (const effect of transaction.effects) {
-            if (effect.is(setMathDecorations)) decorations = effect.value;
-        }
-        return decorations;
-    },
-    provide: (field) => EditorView.decorations.from(field)
-});
-
-const inlineMathPlugin = ViewPlugin.fromClass(
-    class {
-        private scheduled = false;
-
-        constructor(view: EditorView) {
-            this.schedule(view);
-        }
-
-        update(update: ViewUpdate): void {
-            if (
-                update.docChanged ||
-                update.viewportChanged ||
-                update.transactions.some((transaction) =>
-                    transaction.effects.some((effect) => effect.is(refreshMathDecorations))
-                )
-            ) {
-                this.schedule(update.view);
-            }
-        }
-
-        private schedule(view: EditorView): void {
-            if (this.scheduled) return;
-            this.scheduled = true;
-            queueMicrotask(() => {
-                this.scheduled = false;
-                if (!activeEditorViews.has(view)) return;
-                const next = mathDecorations(view);
-                if (
-                    RangeSet.eq(
-                        [view.state.field(inlineMathField)],
-                        [next],
-                        0,
-                        view.state.doc.length
-                    )
-                ) {
-                    return;
-                }
-                view.dispatch({ effects: setMathDecorations.of(next) });
-            });
-        }
-    },
-    {}
-);
-
 interface SourceMathRegion {
     readonly from: number;
     readonly to: number;
@@ -1109,7 +1585,7 @@ interface SourceMathRegion {
     readonly block: boolean;
 }
 
-function mathDecorations(view: EditorView): DecorationSet {
+function mathDecorations(view: CodeMirrorEditorView): DecorationSet {
     const visible = visibleMathRegions(view);
     const regions = visible.regions;
     const needsEquationContext = visible.windows.some(({ source }) =>
@@ -1132,8 +1608,8 @@ function mathDecorations(view: EditorView): DecorationSet {
     }
 
     const ranges = regions.map((region) =>
-        Decoration.replace({
-            widget: new FormulaWidget(
+        codeMirrorRuntime!.Decoration.replace({
+            widget: createFormulaWidget(
                 formulaByRange.get(`${region.from}:${region.to}`) ?? region.formula,
                 region.display,
                 katexVersion
@@ -1158,12 +1634,12 @@ function mathDecorations(view: EditorView): DecorationSet {
                 if (value === undefined) continue;
                 const text = match[1] === "eqref" ? `(${value})` : value;
                 ranges.push(
-                    Decoration.replace({ widget: new ReferenceWidget(text) }).range(from, to)
+                    codeMirrorRuntime!.Decoration.replace({ widget: createReferenceWidget(text) }).range(from, to)
                 );
             }
         }
     }
-    return Decoration.set(ranges, true);
+    return codeMirrorRuntime!.Decoration.set(ranges, true);
 }
 
 interface VisibleSourceWindow {
@@ -1180,7 +1656,7 @@ interface DocumentMathScan {
 
 const mathContextCharacters = 2048;
 
-function visibleMathRegions(view: EditorView): {
+function visibleMathRegions(view: CodeMirrorEditorView): {
     readonly windows: readonly VisibleSourceWindow[];
     readonly regions: SourceMathRegion[];
     readonly documentRegions: SourceMathRegion[];
@@ -1228,7 +1704,7 @@ function visibleMathRegions(view: EditorView): {
     };
 }
 
-function scanDocumentMath(view: EditorView): DocumentMathScan {
+function scanDocumentMath(view: CodeMirrorEditorView): DocumentMathScan {
     const doc = view.state.doc;
     const cached = mathScanCache.get(doc);
     if (cached !== undefined) return cached;
@@ -1440,7 +1916,7 @@ function findCodeFenceRanges(source: string): [number, number][] {
 }
 
 function fenceBeforeVisibleLine(
-    doc: EditorState["doc"],
+    doc: CodeMirrorEditorState["doc"],
     ranges: readonly [number, number][],
     lineFrom: number
 ): MarkdownFenceContext | undefined {
@@ -1464,70 +1940,83 @@ function advanceFence(
         : fence;
 }
 
-class FormulaWidget extends WidgetType {
-    constructor(
-        private readonly formula: string,
-        private readonly display: boolean,
-        private readonly version: number
-    ) {
-        super();
-    }
+let formulaWidgetConstructor: (new (formula: string, display: boolean, version: number) => CodeMirrorWidgetType) | undefined;
+let referenceWidgetConstructor: (new (text: string) => CodeMirrorWidgetType) | undefined;
 
-    override eq(other: FormulaWidget): boolean {
-        return (
-            this.formula === other.formula &&
-            this.display === other.display &&
-            this.version === other.version
-        );
-    }
+function createFormulaWidget(formula: string, display: boolean, version: number): CodeMirrorWidgetType {
+    const runtime = codeMirrorRuntime;
+    if (runtime === undefined) throw new Error("The source editor has not finished loading.");
+    formulaWidgetConstructor ??= class extends runtime.WidgetType {
+        constructor(
+            private readonly formula: string,
+            private readonly display: boolean,
+            private readonly version: number
+        ) {
+            super();
+        }
 
-    override toDOM(): HTMLElement {
-        const wrapper = document.createElement("span");
-        wrapper.className = this.display ? "cm-math-display" : "cm-math-inline";
-        wrapper.setAttribute("role", "img");
-        wrapper.setAttribute("aria-label", `Math formula: ${this.formula}`);
-        if (katexApi === undefined) {
-            wrapper.textContent = this.formula;
+        override eq(other: CodeMirrorWidgetType): boolean {
+            return other instanceof this.constructor &&
+                (other as typeof this).formula === this.formula &&
+                (other as typeof this).display === this.display &&
+                (other as typeof this).version === this.version;
+        }
+
+        override toDOM(): HTMLElement {
+            const wrapper = document.createElement("span");
+            wrapper.className = this.display ? "cm-math-display" : "cm-math-inline";
+            wrapper.setAttribute("role", "img");
+            wrapper.setAttribute("aria-label", `Math formula: ${this.formula}`);
+            if (katexApi === undefined) {
+                wrapper.textContent = this.formula;
+                return wrapper;
+            }
+            try {
+                const output = katexApi.renderToString(this.formula, {
+                    displayMode: this.display,
+                    throwOnError: false,
+                    trust: false,
+                    macros: PHYSICS_MACROS
+                });
+                const parsed = new DOMParser().parseFromString(`<body>${output}</body>`, "text/html");
+                for (const child of Array.from(parsed.body.childNodes)) {
+                    wrapper.appendChild(document.importNode(child, true));
+                }
+            } catch {
+                wrapper.classList.add("cm-math-error");
+                wrapper.textContent = this.formula;
+            }
             return wrapper;
         }
-        try {
-            const output = katexApi.renderToString(this.formula, {
-                displayMode: this.display,
-                throwOnError: false,
-                trust: false,
-                macros: PHYSICS_MACROS
-            });
-            const parsed = new DOMParser().parseFromString(`<body>${output}</body>`, "text/html");
-            for (const child of Array.from(parsed.body.childNodes)) {
-                wrapper.appendChild(document.importNode(child, true));
-            }
-        } catch {
-            wrapper.classList.add("cm-math-error");
-            wrapper.textContent = this.formula;
+    };
+    return new formulaWidgetConstructor(formula, display, version);
+}
+
+function createReferenceWidget(text: string): CodeMirrorWidgetType {
+    const runtime = codeMirrorRuntime;
+    if (runtime === undefined) throw new Error("The source editor has not finished loading.");
+    referenceWidgetConstructor ??= class extends runtime.WidgetType {
+        constructor(private readonly text: string) {
+            super();
         }
-        return wrapper;
-    }
+
+        override eq(other: CodeMirrorWidgetType): boolean {
+            return other instanceof this.constructor && (other as typeof this).text === this.text;
+        }
+
+        override toDOM(): HTMLElement {
+            const wrapper = document.createElement("span");
+            wrapper.className = "cm-math-reference";
+            wrapper.textContent = this.text;
+            return wrapper;
+        }
+    };
+    return new referenceWidgetConstructor(text);
 }
 
-class ReferenceWidget extends WidgetType {
-    constructor(private readonly text: string) {
-        super();
-    }
-
-    override eq(other: ReferenceWidget): boolean {
-        return this.text === other.text;
-    }
-
-    override toDOM(): HTMLElement {
-        const wrapper = document.createElement("span");
-        wrapper.className = "cm-math-reference";
-        wrapper.textContent = this.text;
-        return wrapper;
-    }
-}
-
-function inlineDecorations(view: EditorView): DecorationSet {
-    const ranges: Range<Decoration>[] = [];
+function inlineDecorations(view: CodeMirrorEditorView): DecorationSet {
+    const Decoration = codeMirrorRuntime!.Decoration;
+    const ranges: Range<CodeMirrorDecoration>[] = [];
     const { regions: mathRegions, documentCodeRanges } = visibleMathRegions(view);
     const doc = view.state.doc;
     for (const visible of view.visibleRanges) {
@@ -1603,9 +2092,10 @@ function inlineDecorations(view: EditorView): DecorationSet {
 function decorateInline(
     lineFrom: number,
     text: string,
-    ranges: Range<Decoration>[],
+    ranges: Range<CodeMirrorDecoration>[],
     mathRegions: readonly SourceMathRegion[]
 ): void {
+    const Decoration = codeMirrorRuntime!.Decoration;
     const protectedRanges: [number, number][] = [];
     const protect = (from: number, to: number): void => {
         protectedRanges.push([from, to]);
@@ -1710,13 +2200,14 @@ function decorateInline(
 function decorateDelimiter(
     text: string,
     lineFrom: number,
-    ranges: Range<Decoration>[],
+    ranges: Range<CodeMirrorDecoration>[],
     protectedRanges: readonly [number, number][],
     pattern: RegExp,
     openingGroup: number,
     contentGroup: number,
     className: string
 ): void {
+    const Decoration = codeMirrorRuntime!.Decoration;
     for (const match of text.matchAll(pattern)) {
         const token = match[0];
         const start = match.index ?? 0;
@@ -1755,13 +2246,13 @@ function containsMath(source: string): boolean {
     return hasRawTex || /\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]|\$\$?[\s\S]*?\S\$\$?/.test(prose);
 }
 
-function visibleRangesContainMath(view: EditorView): boolean {
+function visibleRangesContainMath(view: CodeMirrorEditorView): boolean {
     return view.visibleRanges.some((range) =>
         containsMath(view.state.doc.sliceString(range.from, range.to))
     );
 }
 
-function loadKatex(view: EditorView): Promise<void> {
+function loadKatex(view: CodeMirrorEditorView): Promise<void> {
     katexLoad ??= Promise.all([import("katex"), import("katex/dist/katex.min.css")]).then(
         ([module]) => {
             katexApi = module.default;
@@ -1774,8 +2265,22 @@ function loadKatex(view: EditorView): Promise<void> {
     return Promise.all([katexLoad, chemistryLoad]).then(() => {
         if (activeEditorViews.has(view)) {
             view.dispatch({
-                effects: [refreshInlineDecorations.of(), refreshMathDecorations.of()]
+                effects: [
+                    inlineExtensions!.refreshInlineDecorations.of(),
+                    inlineExtensions!.refreshMathDecorations.of()
+                ]
             });
         }
     });
+}
+
+function replacementPayloadSize(changes: Readonly<Record<string, readonly EditorHistoryPatch[]>>): number {
+    const encoder = new TextEncoder();
+    let bytes = 0;
+    for (const patches of Object.values(changes)) {
+        for (const patch of patches) {
+            bytes += encoder.encode(patch.removed).byteLength + encoder.encode(patch.inserted).byteLength + 24;
+        }
+    }
+    return bytes;
 }

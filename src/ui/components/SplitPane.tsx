@@ -31,6 +31,17 @@ export function SplitDivider(props: SplitPaneProps) {
         divider?.focus();
     }
 
+    function onKeyDown(event: KeyboardEvent): void {
+        props.onKeyDown(event);
+        if (!event.defaultPrevented) return;
+        const target = divider;
+        requestAnimationFrame(() => {
+            if (target?.isConnected && document.activeElement !== target) {
+                target.focus({ preventScroll: true });
+            }
+        });
+    }
+
     return (
         <div
             class="divider"
@@ -45,7 +56,7 @@ export function SplitDivider(props: SplitPaneProps) {
                 divider = element;
             }}
             onPointerDown={onPointerDown}
-            onKeyDown={(event) => props.onKeyDown(event)}
+            onKeyDown={onKeyDown}
         />
     );
 }

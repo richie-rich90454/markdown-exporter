@@ -1,5 +1,6 @@
 import { decodeBookArchive, encodeBookArchive } from "./BookArchive";
 import { readBookFolder, writeBookFolder } from "./BookFolder";
+import { bookProjectFromFiles } from "./BookProjectFromFiles";
 import type { BookProjectFiles } from "../../port/BookProjectFiles";
 
 export class BrowserBookProjectFiles implements BookProjectFiles {
@@ -9,6 +10,10 @@ export class BrowserBookProjectFiles implements BookProjectFiles {
 
     writeArchive(project: Parameters<BookProjectFiles["writeArchive"]>[0]) {
         return encodeBookArchive(project);
+    }
+
+    readFiles(selectedFiles: Parameters<BookProjectFiles["readFiles"]>[0]) {
+        return bookProjectFromFiles(selectedFiles);
     }
 
     readFolder(root: Parameters<BookProjectFiles["readFolder"]>[0]) {

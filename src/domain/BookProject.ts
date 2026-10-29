@@ -86,10 +86,33 @@ export function validateBookProject(value: unknown): BookProject {
     }
 
     const files: Record<string, BookFileData> = {};
+    const filePathKeys = new Map<string, string>();
+    const directoryPathKeys = new Set<string>();
     for (const [path, data] of Object.entries(value.files)) {
         assertSafeBookPath(path);
-        if (typeof data === "string") files[path] = data;
-        else if (data instanceof Uint8Array) files[path] = data;
+        if (isBookManifestPath(path)) {
+            throw new Error("The book.json manifest cannot also be stored as a project file.");
+        }
+        const pathKey = canonicalBookPath(path);
+        const previousPath = filePathKeys.get(pathKey);
+        if (previousPath !== undefined) {
+            throw new Error(`The book contains paths that collide on common filesystems: ${previousPath} and ${path}.`);
+        }
+        if (directoryPathKeys.has(pathKey)) {
+            throw new Error(`The book path ${path} conflicts with a folder containing another project file.`);
+        }
+        const pathParts = pathKey.split("/");
+        for (let index = 1; index < pathParts.length; index += 1) {
+            const parentPath = pathParts.slice(0, index).join("/");
+            const parentFile = filePathKeys.get(parentPath);
+            if (parentFile !== undefined) {
+                throw new Error(`The book path ${path} conflicts with the file ${parentFile}.`);
+            }
+            directoryPathKeys.add(parentPath);
+        }
+        filePathKeys.set(pathKey, path);
+        if (typeof data === "string") defineFile(files, path, data);
+        else if (data instanceof Uint8Array) defineFile(files, path, data);
         else throw new Error(`The book file ${path} has an unsupported value.`);
     }
 
@@ -113,18 +136,38 @@ export function validateBookProject(value: unknown): BookProject {
         ids.add(entry.id);
         assertSafeBookPath(entry.path);
         if (entry.path === "book.json") throw new Error("Book entries cannot replace the manifest.");
-        if (entryPaths.has(entry.path)) {
+        const entryPathKey = canonicalBookPath(entry.path);
+        if (entryPaths.has(entryPathKey)) {
             throw new Error(`The book uses the same Markdown file more than once: ${entry.path}.`);
         }
-        entryPaths.add(entry.path);
+        entryPaths.add(entryPathKey);
         if (typeof files[entry.path] !== "string") {
             throw new Error(`The Markdown file for “${entry.title}” is missing.`);
         }
         return { id: entry.id, role: entry.role, path: entry.path, title: entry.title };
     });
+    if (!entries.some((entry) => entry.role === "chapter")) {
+        throw new Error("A book must contain at least one chapter.");
+    }
 
     const bibliographyPath = optionalSafePath(manifest.bibliographyPath);
     const citationStylePath = optionalSafePath(manifest.citationStylePath);
+    const coverPath = optionalSafePath(metadata.coverPath);
+    const referencedPaths = new Map<string, string>();
+    for (const entry of entries) referencedPaths.set(canonicalBookPath(entry.path), `section “${entry.title}”`);
+    for (const [label, path] of [
+        ["cover", coverPath],
+        ["bibliography", bibliographyPath],
+        ["citation style", citationStylePath]
+    ] as const) {
+        if (path === undefined) continue;
+        const pathKey = canonicalBookPath(path);
+        const previous = referencedPaths.get(pathKey);
+        if (previous !== undefined) {
+            throw new Error(`The ${label} path ${path} conflicts with ${previous}.`);
+        }
+        referencedPaths.set(pathKey, label);
+    }
     const normalizedManifest: BookManifest = {
         formatVersion: BOOK_FORMAT_VERSION,
         metadata: {
@@ -137,8 +180,8 @@ export function validateBookProject(value: unknown): BookProject {
             ...(typeof metadata.description === "string"
                 ? { description: metadata.description }
                 : {}),
-            ...(typeof metadata.coverPath === "string"
-                ? { coverPath: assertAndReturnSafePath(metadata.coverPath) }
+            ...(coverPath !== undefined
+                ? { coverPath }
                 : {})
         },
         entries,
@@ -148,7 +191,7 @@ export function validateBookProject(value: unknown): BookProject {
 
     if (
         normalizedManifest.metadata.coverPath !== undefined &&
-        files[normalizedManifest.metadata.coverPath] === undefined
+        !Object.prototype.hasOwnProperty.call(files, normalizedManifest.metadata.coverPath)
     ) {
         throw new Error("The cover image referenced by the book manifest is missing.");
     }
@@ -204,10 +247,39 @@ export function assertSafeBookPath(path: string): void {
         path.includes("\\") ||
         path.startsWith("/") ||
         /^[a-zA-Z]:/.test(path) ||
-        path.split("/").some((part) => part === "" || part === "." || part === "..")
+        path.split("/").some((part) =>
+            part === "" ||
+            part === "." ||
+            part === ".." ||
+            /[<>:"|?*]/.test(part) ||
+            hasControlCharacter(part) ||
+            /[. ]$/.test(part) ||
+            /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?$/i.test(part)
+        )
     ) {
         throw new Error(`Unsafe path in book project: ${path || "(empty)"}.`);
     }
+}
+
+function hasControlCharacter(value: string): boolean {
+    return Array.from(value).some((character) => {
+        const codePoint = character.codePointAt(0) ?? 0;
+        return codePoint <= 0x1f || codePoint === 0x7f;
+    });
+}
+
+/** Paths are case-insensitive and Unicode-normalized in common desktop filesystems. */
+export function canonicalBookPath(path: string): string {
+    return path.normalize("NFC").toLocaleLowerCase("en-US");
+}
+
+export function isBookManifestPath(path: string): boolean {
+    return canonicalBookPath(path) === "book.json";
+}
+
+function defineFile(files: Record<string, BookFileData>, path: string, data: BookFileData): void {
+    // Define an own data property so names such as "__proto__" cannot mutate the object prototype.
+    Object.defineProperty(files, path, { value: data, enumerable: true, configurable: true, writable: true });
 }
 
 function assertAndReturnSafePath(path: string): string {
