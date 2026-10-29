@@ -168,7 +168,8 @@ describe("page geometry", () => {
                 {
                     kind: "table",
                     head: [[{ text: "Value", bold: false, italic: false, mono: false }]],
-                    body: [[[{ text: "", bold: false, italic: false, mono: false, math }]]]
+                    body: [[[{ text: "", bold: false, italic: false, mono: false, math }]]],
+                    alignments: ["left"]
                 }
             ],
             SETUP,
@@ -199,6 +200,29 @@ describe("page geometry", () => {
         );
         const runs = texts(doc.pages[0] ?? []);
         expect(runs[0]?.x).toBe(LEFT);
+    });
+
+    it("preserves GFM table alignment and aligns PDF cell text", () => {
+        const host = document.createElement("div");
+        host.innerHTML =
+            '<table><thead><tr><th align="left">Left</th><th align="center">Center</th>' +
+            '<th align="right">Right</th></tr></thead><tbody><tr>' +
+            '<td align="left">same</td><td align="center">same</td>' +
+            '<td align="right">same</td></tr></tbody></table>';
+        const blocks = parseBlocks(host);
+        const table = blocks[0];
+
+        expect(table?.kind).toBe("table");
+        if (table?.kind !== "table") return;
+        expect(table.alignments).toEqual(["left", "center", "right"]);
+
+        const doc = paginate(blocks, SETUP, new Map<string, boolean>());
+        const positions = texts(doc.pages[0] ?? [])
+            .filter((op) => op.text === "same")
+            .map((op) => op.x);
+        expect(positions).toHaveLength(3);
+        expect(positions[0]).toBeLessThan(positions[1] ?? Infinity);
+        expect(positions[1]).toBeLessThan(positions[2] ?? Infinity);
     });
 
     it("fills every page and numbers them all", () => {

@@ -41,6 +41,18 @@ describe("UnifiedMarkdownRenderer", () => {
         expect(rendered.content.querySelector("li input[type='checkbox']")).not.toBeNull();
     });
 
+    it("recovers a GFM table when pasted rows have blank paragraph separators", async () => {
+        const rendered = await createRenderer().render(
+            MarkdownDocument.initial(
+                "| District | Population |\n\n| --- | --- |\n\n| Huangpu | 2.5M |\n\n| Jing'an | 1.8M |\n\nAfter the table."
+            )
+        );
+
+        expect(rendered.content.querySelectorAll("table th")).toHaveLength(2);
+        expect(rendered.content.querySelectorAll("table tbody tr")).toHaveLength(2);
+        expect(rendered.content.querySelector("p")?.textContent).toContain("After the table.");
+    });
+
     it("renders GFM footnotes with a backlink", async () => {
         const rendered = await createRenderer().render(
             MarkdownDocument.initial(
@@ -113,6 +125,19 @@ describe("UnifiedMarkdownRenderer", () => {
             "http://www.w3.org/1998/Math/MathML"
         );
         expect(rendered.content.textContent).toContain("x2");
+    });
+
+    it("loads KaTeX chemistry only for documents that use mhchem commands", async () => {
+        const rendered = await createRenderer().render(
+            MarkdownDocument.initial(
+                "The reaction is $\\ce{H2O -> H+ + OH-}$. The mass is $$\\pu{2.5 kg}$$."
+            )
+        );
+
+        expect(rendered.content.querySelectorAll(".katex")).toHaveLength(2);
+        expect(rendered.content.querySelectorAll(".katex-error")).toHaveLength(0);
+        expect(rendered.content.textContent).toContain("H2O");
+        expect(rendered.content.textContent).toContain("2.5");
     });
 
     it("preserves KaTeX's generated dimensions for display-mode operator limits", async () => {

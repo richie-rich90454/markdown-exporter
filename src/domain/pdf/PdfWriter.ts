@@ -17,6 +17,13 @@ interface EmbeddedMathFont {
     readonly codePoints: readonly number[];
 }
 
+export interface PdfDocumentMetadata {
+    readonly language?: string;
+    readonly author?: string;
+    readonly subject?: string;
+    readonly keywords?: string;
+}
+
 interface CjkFontConfiguration {
     readonly id: "simplifiedChinese" | "traditionalChinese" | "japanese" | "korean";
     readonly baseName: string;
@@ -106,7 +113,8 @@ export function writePdf(
     images: readonly (PdfImageSource | null)[],
     title: string,
     setup: PageSetup,
-    katexFontData: ReadonlyMap<string, Uint8Array> = new Map()
+    katexFontData: ReadonlyMap<string, Uint8Array> = new Map(),
+    metadata: PdfDocumentMetadata = {}
 ): Uint8Array {
     const pageWidth = pageWidthPt(setup);
     const pageHeight = pageHeightPt(setup);
@@ -303,10 +311,17 @@ export function writePdf(
     );
 
     const catalogIndex = reserve();
-    put(catalogIndex, `<< /Type /Catalog /Pages ${pagesIndex} 0 R /Lang (en) >>`);
+    put(catalogIndex, `<< /Type /Catalog /Pages ${pagesIndex} 0 R /Lang ${literal(metadata.language || "en")} >>`);
 
     const infoIndex = reserve();
-    put(infoIndex, `<< /Title ${literal(title)} /Producer ${literal("Markdown Exporter")} >>`);
+    const info = [
+        `/Title ${pdfTextString(title)}`,
+        `/Producer ${literal("Markdown Exporter")}`,
+        ...(metadata.author?.trim() ? [`/Author ${pdfTextString(metadata.author.trim())}`] : []),
+        ...(metadata.subject?.trim() ? [`/Subject ${pdfTextString(metadata.subject.trim())}`] : []),
+        ...(metadata.keywords?.trim() ? [`/Keywords ${pdfTextString(metadata.keywords.trim())}`] : [])
+    ];
+    put(infoIndex, `<< ${info.join(" ")} >>`);
 
     let output = "%PDF-1.6\n";
     const offsets: number[] = [];
@@ -662,6 +677,19 @@ function literal(text: string): string {
         }
     }
     return `${out})`;
+}
+
+/** PDF text strings use UTF-16BE when WinAnsi cannot preserve the metadata. */
+function pdfTextString(text: string): string {
+    if ([...text].every((character) => {
+        const code = character.codePointAt(0) ?? 0;
+        return code < 127 || (code >= 160 && code <= 255) || WIN_ANSI[character] !== undefined;
+    })) {
+        return literal(text);
+    }
+    const words = [0xfeff];
+    for (let index = 0; index < text.length; index += 1) words.push(text.charCodeAt(index));
+    return `<${words.map((word) => word.toString(16).padStart(4, "0")).join("").toUpperCase()}>`;
 }
 
 function byte(value: number): string {

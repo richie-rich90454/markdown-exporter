@@ -8,7 +8,7 @@ import {
     type PageSetup
 } from "../PageSetup";
 import { font, textWidth, type FontKey } from "./PdfMetrics";
-import type { Block, DrawOp, ImageRef, LaidOut, Run } from "./PdfLayout";
+import type { Block, DrawOp, ImageRef, LaidOut, Run, TableAlignment } from "./PdfLayout";
 
 const INK = 0;
 const MUTED = 0.42;
@@ -208,7 +208,7 @@ function place(
             return;
         }
         case "table": {
-            placeTable(block.head, block.body, cursor, area);
+            placeTable(block.head, block.body, block.alignments, cursor, area);
             return;
         }
         case "image": {
@@ -713,6 +713,7 @@ function placeList(
 function placeTable(
     head: readonly (readonly Run[])[],
     body: readonly (readonly (readonly Run[])[])[],
+    alignments: readonly TableAlignment[],
     cursor: Cursor,
     area: Area
 ): void {
@@ -794,10 +795,19 @@ function placeTable(
         for (let column = 0; column < columns; column += 1) {
             const width = widths[column] ?? 40;
             const lines = row.linesPerCell[column] ?? [];
+            const alignment = alignments[column] ?? "left";
             let y = top - CELL_PAD - (row.firstAscent[column] ?? size * 0.85);
             for (const [index, line] of lines.entries()) {
                 if (index > 0) y -= line.height;
-                drawLine(line, x + CELL_PAD, y, cursor);
+                const innerWidth = Math.max(0, width - 2 * CELL_PAD);
+                const lineWidth = line.pieces.reduce((total, piece) => total + pieceWidth(piece), 0);
+                const freeSpace = Math.max(0, innerWidth - lineWidth);
+                const alignmentOffset = alignment === "right"
+                    ? freeSpace
+                    : alignment === "center"
+                        ? freeSpace / 2
+                        : 0;
+                drawLine(line, x + CELL_PAD + alignmentOffset, y, cursor);
             }
             if (column > 0) {
                 cursor.emit({

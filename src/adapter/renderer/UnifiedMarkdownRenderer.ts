@@ -16,7 +16,6 @@ import { RenderedDocument } from "../../domain/RenderedDocument";
 import type { Clock } from "../../port/Clock";
 import type { DomRenderer } from "../../port/DomRenderer";
 import type { MarkdownRenderer } from "../../port/MarkdownRenderer";
-import type * as MermaidModule from "mermaid";
 
 // rehype-highlight emits <code class="language-x"> and <span class="hljs-*">,
 // which the GitHub schema would strip, so both are re-allowed here. Data URLs
@@ -39,10 +38,6 @@ const sanitizeSchema: SanitizeSchema = {
     }
 };
 
-let mermaidModulePromise: Promise<typeof MermaidModule> | undefined;
-let mermaidInitialized = false;
-let zenumlRegistered = false;
-let nextDiagramId = 0;
 
 function createProcessor(
     mathRemark?: Pluggable,
@@ -107,42 +102,17 @@ export class UnifiedMarkdownRenderer implements MarkdownRenderer {
         );
         if (blocks.length === 0) return content;
 
-        mermaidModulePromise ??= import("mermaid");
-        const mermaid = (await mermaidModulePromise).default;
-        if (!mermaidInitialized) {
-            mermaid.initialize({
-                startOnLoad: false,
-                securityLevel: "strict",
-                theme: "default",
-                htmlLabels: false
-            });
-            mermaidInitialized = true;
-        }
-
-        const needsZenUml = blocks.some((block) => {
-            const code = block.querySelector("code");
-            return (
-                code !== null &&
-                diagramKind(code) === "mermaid" &&
-                /^\s*zenuml\b/i.test(code.textContent ?? "")
-            );
-        });
-        if (needsZenUml && !zenumlRegistered) {
-            const zenuml = (await import("@mermaid-js/mermaid-zenuml")).default;
-            await mermaid.registerExternalDiagrams([zenuml], { lazyLoad: false });
-            zenumlRegistered = true;
-        }
+        // Keep Mermaid's large parser/runtime behind a second feature boundary.
+        // The Markdown renderer is on the normal writing path, but ordinary
+        // documents should not download any diagram code.
+        const { renderMermaid } = await import("./MermaidRuntime");
 
         for (const block of blocks) {
             const code = block.querySelector("code");
             if (code === null) continue;
             try {
                 const source = normalizeDiagram(code.textContent ?? "", diagramKind(code));
-                const rendered = await mermaid.render(
-                    `markdown-exporter-diagram-${++nextDiagramId}`,
-                    source
-                );
-                const svg = safeSvg(rendered.svg);
+                const svg = safeSvg(await renderMermaid(source, /^\s*zenuml\b/i.test(source)));
                 if (svg === null)
                     throw new Error("Mermaid returned an SVG that could not be sanitized.");
                 block.replaceWith(svg);
@@ -166,16 +136,17 @@ export class UnifiedMarkdownRenderer implements MarkdownRenderer {
     protected async toHast(source: string): Promise<HastRoot> {
         const currencySafeSource = escapeCurrencyDelimiters(source);
         const usesMath = hasMathSyntax(currencySafeSource);
+        const usesChemistry = usesMath && /\\(?:ce|pu)\s*\{/.test(currencySafeSource);
         const usesRawHtml = hasRawHtml(source);
         const usesHighlight = hasHighlightedCode(source);
-        const processor = await this.getProcessor(usesMath, usesRawHtml, usesHighlight);
+        const processor = await this.getProcessor(usesMath, usesChemistry, usesRawHtml, usesHighlight);
         const texNormalizedSource = usesMath
             ? normalizePandocTexSource(currencySafeSource)
             : currencySafeSource;
         const preparedSource = usesMath
             ? rewriteAlternateDelimiters(texNormalizedSource)
             : texNormalizedSource;
-        const mdast = processor.parse(preparedSource);
+        const mdast = processor.parse(normalizeSpacedPipeTables(preparedSource));
         const hast = (await processor.run(mdast)) as HastRoot;
         // remark-rehype keeps the blank lines between blocks as whitespace text
         // nodes. Pagination and the incremental split both assume one node per
@@ -188,20 +159,28 @@ export class UnifiedMarkdownRenderer implements MarkdownRenderer {
 
     private async getProcessor(
         usesMath: boolean,
+        usesChemistry: boolean,
         usesRawHtml: boolean,
         usesHighlight: boolean
     ): Promise<ReturnType<typeof createProcessor>> {
-        const key = `${usesMath ? "m" : ""}${usesRawHtml ? "r" : ""}${usesHighlight ? "h" : ""}`;
+        const key = `${usesMath ? "m" : ""}${usesChemistry ? "c" : ""}${usesRawHtml ? "r" : ""}${usesHighlight ? "h" : ""}`;
         let processorPromise = this.processorPromises.get(key);
         if (processorPromise === undefined) {
             processorPromise = (async () => {
-                const [math, rawHtml, highlight] = await Promise.all([
+                const [math, , rawHtml, highlight] = await Promise.all([
                     usesMath
                         ? Promise.all([
                               import("remark-math"),
                               import("rehype-katex"),
                               import("katex/dist/katex.min.css")
                           ])
+                        : Promise.resolve(null),
+                    // mhchem registers \ce and \pu with the shared KaTeX
+                    // runtime. Keep its code out of ordinary math documents,
+                    // and let KaTeX display its usual formula diagnostic if
+                    // this optional extension cannot be loaded.
+                    usesChemistry
+                        ? import("katex/contrib/mhchem").catch(() => null)
                         : Promise.resolve(null),
                     usesRawHtml ? import("rehype-raw") : Promise.resolve(null),
                     usesHighlight ? import("rehype-highlight") : Promise.resolve(null)
@@ -217,6 +196,71 @@ export class UnifiedMarkdownRenderer implements MarkdownRenderer {
         }
         return processorPromise;
     }
+}
+
+/**
+ * WebKit can insert paragraph separators between pasted lines in a contenteditable
+ * editor. Recover the GFM table only when a pipe-table header and delimiter make
+ * the structure unambiguous; leave all other blank lines alone.
+ */
+function normalizeSpacedPipeTables(source: string): string {
+    const lines = source.match(/[^\r\n]*(?:\r\n|\n|\r|$)/g)?.filter(Boolean) ?? [];
+    const content = (line: string): string => line.replace(/(?:\r\n|\n|\r)$/, "");
+    const pipeCount = (line: string): number =>
+        Array.from(line.matchAll(/(?<!\\)\|/g)).length;
+    const isPipeRow = (line: string): boolean => pipeCount(line) > 0;
+    const isDelimiter = (line: string): boolean =>
+        /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
+    const output: string[] = [];
+
+    for (let index = 0; index < lines.length; ) {
+        const header = content(lines[index] ?? "");
+        if (!isPipeRow(header)) {
+            output.push(lines[index] ?? "");
+            index += 1;
+            continue;
+        }
+
+        let delimiterIndex = index + 1;
+        while (delimiterIndex < lines.length && content(lines[delimiterIndex] ?? "").trim() === "") {
+            delimiterIndex += 1;
+        }
+        const delimiter = content(lines[delimiterIndex] ?? "");
+        const columns = pipeCount(header);
+        if (
+            delimiterIndex === index + 1 ||
+            !isDelimiter(delimiter) ||
+            pipeCount(delimiter) !== columns
+        ) {
+            output.push(lines[index] ?? "");
+            index += 1;
+            continue;
+        }
+
+        output.push(lines[index] ?? "", lines[delimiterIndex] ?? "");
+        index = delimiterIndex + 1;
+        while (index < lines.length) {
+            const row = content(lines[index] ?? "");
+            if (row.trim() === "") {
+                let nextRowIndex = index + 1;
+                while (
+                    nextRowIndex < lines.length &&
+                    content(lines[nextRowIndex] ?? "").trim() === ""
+                ) {
+                    nextRowIndex += 1;
+                }
+                const nextRow = content(lines[nextRowIndex] ?? "");
+                if (!isPipeRow(nextRow) || pipeCount(nextRow) !== columns) break;
+                output.push(lines[nextRowIndex] ?? "");
+                index = nextRowIndex + 1;
+                continue;
+            }
+            if (!isPipeRow(row) || pipeCount(row) !== columns) break;
+            output.push(lines[index] ?? "");
+            index += 1;
+        }
+    }
+    return output.join("");
 }
 
 function hasRawHtml(source: string): boolean {

@@ -28,6 +28,8 @@ export type Block =
           readonly kind: "table";
           readonly head: readonly (readonly Run[])[];
           readonly body: readonly (readonly (readonly Run[])[])[];
+          /** GFM column alignment, in column order. */
+          readonly alignments: readonly TableAlignment[];
       }
     | {
           readonly kind: "image";
@@ -38,6 +40,8 @@ export type Block =
       }
     | { readonly kind: "rule" }
     | { readonly kind: "pageBreak" };
+
+export type TableAlignment = "left" | "center" | "right";
 
 export type DrawOp =
     | {
@@ -415,12 +419,16 @@ function parseSvgLength(value: string | null): number | null {
 
 function parseTable(element: HTMLElement): Block | null {
     const rows: Run[][][] = [];
-    for (const row of Array.from(element.querySelectorAll("tr"))) {
+    const alignments: TableAlignment[] = [];
+    const tableRows = Array.from(element.querySelectorAll("tr"));
+    const firstRow = tableRows[0];
+    for (const row of tableRows) {
         const cells: Run[][] = [];
         for (const cell of Array.from(row.children) as HTMLElement[]) {
             if (cell.tagName !== "TD" && cell.tagName !== "TH") {
                 continue;
             }
+            if (row === firstRow) alignments.push(tableAlignment(cell));
             cells.push(inlineRuns(cell));
         }
         if (cells.length > 0) {
@@ -433,7 +441,12 @@ function parseTable(element: HTMLElement): Block | null {
     const firstRowIsHeader = element.querySelector("th") !== null;
     const head = firstRowIsHeader ? (rows[0] ?? []) : [];
     const body = firstRowIsHeader ? rows.slice(1) : rows;
-    return { kind: "table", head, body };
+    return { kind: "table", head, body, alignments };
+}
+
+function tableAlignment(cell: HTMLElement): TableAlignment {
+    const value = cell.getAttribute("align")?.toLowerCase() ?? cell.style.textAlign.toLowerCase();
+    return value === "center" || value === "right" ? value : "left";
 }
 
 function inlineRuns(
