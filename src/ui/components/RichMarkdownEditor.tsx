@@ -114,6 +114,7 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
         selectionMemory = undefined;
         fidelityBaseline = serializeMarkdown();
         const syncedView = editor.action((ctx) => ctx.get(editorViewCtx));
+        setEmptyEditorPlaceholder(syncedView.dom);
         restoreSelection(syncedView, previousSelection.anchor, previousSelection.head);
         syncedView.dom.scrollTop = previousSelection.scrollTop;
         syncedView.dom.scrollLeft = previousSelection.scrollLeft;
@@ -325,6 +326,7 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
         view.dom.id = props.active() ? "editor" : "rich-editor";
         view.dom.setAttribute("contenteditable", String(props.active()));
         view.dom.setAttribute("spellcheck", "true");
+        setEmptyEditorPlaceholder(view.dom);
         props.onFocusReady?.(() => editor?.action((ctx) => ctx.get(editorViewCtx).focus()));
         props.onNavigateReady?.(navigateToText);
         if (observer !== undefined)
@@ -644,7 +646,7 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
                     title="Heading 1"
                     onClick={() => runCommand(wrapInHeadingCommand.key, 1)}
                 >
-                    H1
+                    Heading 1
                 </button>
                 <button
                     type="button"
@@ -652,7 +654,7 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
                     title="Heading 2"
                     onClick={() => runCommand(wrapInHeadingCommand.key, 2)}
                 >
-                    H2
+                    Heading 2
                 </button>
                 <span aria-hidden="true" class="rich-editor__separator" />
                 <button
@@ -768,6 +770,12 @@ function looksLikeMarkdownDocument(source: string): boolean {
         return true;
     }
     return /^\s{0,3}(?:\*\s*){3,}$/.test(source);
+}
+
+function setEmptyEditorPlaceholder(view: HTMLElement): void {
+    const placeholder = "Start writing here. Open a Markdown file or book from the toolbar.";
+    view.setAttribute("aria-placeholder", "Start writing, or open a Markdown file or book.");
+    view.setAttribute("data-placeholder", placeholder);
 }
 
 function containsMath(source: string): boolean {

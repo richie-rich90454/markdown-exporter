@@ -304,6 +304,8 @@ test("preserves display-mode sum layout in the paginated preview", async ({ page
         const html = math?.querySelector<HTMLElement>(".katex-html");
         if (math === null || math === undefined || html === null || html === undefined) return null;
         const bounds = math.getBoundingClientRect();
+        const visibleBounds = html.getBoundingClientRect();
+        const pageBounds = element.closest<HTMLElement>(".page-frame")?.getBoundingClientRect();
         const limitOffsets = Array.from(
             math.querySelectorAll<HTMLElement>(".op-limits > .vlist-t > .vlist-r > .vlist > span")
         ).map((row) => row.style.top);
@@ -313,6 +315,8 @@ test("preserves display-mode sum layout in the paginated preview", async ({ page
             htmlDisplay: getComputedStyle(html).display,
             width: bounds.width,
             wrapperWidth: display.getBoundingClientRect().width,
+            visibleCenter: visibleBounds.left + visibleBounds.width / 2,
+            pageCenter: pageBounds === undefined ? null : pageBounds.left + pageBounds.width / 2,
             limitOffsets
         };
     });
@@ -322,6 +326,8 @@ test("preserves display-mode sum layout in the paginated preview", async ({ page
     expect(rendered?.htmlDisplay).toBe("block");
     expect(rendered?.width).toBeGreaterThan(500);
     expect(rendered?.wrapperWidth).toBeGreaterThan(500);
+    expect(rendered?.pageCenter).not.toBeNull();
+    expect(Math.abs((rendered?.visibleCenter ?? 0) - (rendered?.pageCenter ?? 0))).toBeLessThan(2);
     expect(rendered?.limitOffsets.slice(0, 3).every((offset) => offset.length > 0)).toBe(true);
     expect(new Set(rendered?.limitOffsets.slice(0, 3)).size).toBe(3);
 });

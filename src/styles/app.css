@@ -354,8 +354,6 @@ textarea {
     color: var(--text-tertiary);
     font-size: var(--text-micro);
     font-weight: 500;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
 }
 
 .editor-toolbar__modes {
@@ -536,6 +534,7 @@ textarea {
 }
 
 .rich-editor__surface .ProseMirror {
+    position: relative;
     min-height: 100%;
     outline: none;
     white-space: pre-wrap;
@@ -543,6 +542,16 @@ textarea {
     font-size: var(--text-editor);
     line-height: 1.65;
     overflow-wrap: anywhere;
+}
+
+.rich-editor__surface
+    .ProseMirror[data-placeholder]:has(> p:only-child > br.ProseMirror-trailingBreak)::before {
+    content: attr(data-placeholder);
+    position: absolute;
+    top: 0;
+    left: 0;
+    color: var(--text-tertiary);
+    pointer-events: none;
 }
 
 .rich-editor__surface .ProseMirror > :first-child {
@@ -1313,7 +1322,7 @@ textarea {
     height: 100%;
     margin: 0;
     padding: var(--space-6);
-    color: var(--text-tertiary);
+    color: #6b6b6b;
     font-size: var(--text-base);
     text-align: center;
     pointer-events: none;
@@ -1355,10 +1364,8 @@ textarea {
 
 .statusbar__label {
     color: var(--text-tertiary);
-    text-transform: uppercase;
     font-size: var(--text-micro);
     font-weight: 500;
-    letter-spacing: 0.04em;
 }
 
 .statusbar__value {
@@ -1437,8 +1444,6 @@ textarea {
     color: var(--text-secondary);
     font-size: var(--text-micro);
     font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
 }
 
 .field__hint {
