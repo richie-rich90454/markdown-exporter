@@ -11,6 +11,9 @@ test("creates a named template, renders it, and recovers edits after reload", as
     await dialog.getByRole("button", { name: "Create document", exact: true }).click();
     await expect(dialog).not.toBeVisible();
     await expect(page.locator(".preview__flow h1")).toHaveText("Weekly planning");
+    await expect(
+        page.locator(".preview__flow p").filter({ hasText: "Add meeting date" }).locator("br")
+    ).toHaveCount(1);
     await expect(page.locator(".preview__flow table")).toHaveCount(1);
     await expect(page.locator(".editor-toolbar__filename")).toHaveText("weekly-planning.md");
     await expect(page.locator(".editor-footer")).toContainText("Draft saved automatically");

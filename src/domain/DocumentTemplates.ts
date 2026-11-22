@@ -19,7 +19,7 @@ export const DOCUMENT_TEMPLATES: readonly DocumentTemplate[] = [
         name: "Meeting notes",
         description: "Capture decisions, owners, and next steps.",
         title: "Meeting notes",
-        body: `**Date:** Add meeting date\
+        body: String.raw`**Date:** Add meeting date\
 **Attendees:** Add names
 
 ## Purpose
