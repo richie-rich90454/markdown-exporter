@@ -52,6 +52,7 @@ Legend: a checked item is implemented by the shared preview renderer. It does no
 - [x] Ordered book sections, metadata, editable/importable BibTeX, APA 7/Harvard/Vancouver styles, custom local CSL imports, rename/reorder/delete, outline, word counts, and manuscript-wide search/replace
 - [x] Versioned `book.json` folders and `.mdbook` ZIP packages with path and expanded-size validation
 - [x] File input and download fallbacks for browsers without local file handles
+- [x] Wails desktop packaging with embedded offline engines, native file/folder access, atomic saves, and full-book recovery
 - [x] Current Markdown and the complete book project recover on-device through IndexedDB, with localStorage fallback
 - [x] KaTeX and Mermaid JavaScript load only when the corresponding feature is used
 - [x] Inline editor decorations stay near visible ranges, with full-document fence and delimiter context
@@ -61,7 +62,7 @@ Legend: a checked item is implemented by the shared preview renderer. It does no
 - [x] PDF book exports include page numbers and running book-title headers
 - [x] PDF book contents entries and rendered headings use internal page destinations
 - [x] DOCX book exports apply the selected trim size and margins, with running headers and page-number fields
-- [x] The automated Playwright suite passed in Chromium, Firefox, and WebKit: 208 passed, 5 skipped. The skipped cases are the opt-in stress test in each browser and system-clipboard permission checks outside Chromium; synthetic paste handling is exercised in all three.
+- [x] The automated Playwright suite covers Chromium, Firefox, and WebKit. The routinely skipped cases are the opt-in stress test in each browser and system-clipboard permission checks outside Chromium; synthetic paste handling is exercised in all three.
 - [ ] EPUBCheck and opening generated DOCX files in Word or LibreOffice remain external validation steps; those tools are not installed in this environment
 - [x] The dedicated 100,000-word browser benchmark passes with `pnpm test:perf`
 
