@@ -106,7 +106,7 @@ export class HtmlExporter implements DocumentExporter {
             `<title>${HtmlEscaper.escape(title)}</title>\n` +
             `<style>\n${styles}\n</style>\n</head>\n<body>\n${body}\n</body>\n</html>\n`;
         const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-        this.fileSaver.saveBlob(blob, `${publicationSlug(title)}.html`);
+        await this.fileSaver.saveBlob(blob, `${publicationSlug(title)}.html`);
         return ExportResults.success(this.supportedFormat);
     }
 }

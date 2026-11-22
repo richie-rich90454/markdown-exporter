@@ -1,0 +1,19 @@
+{
+    "$schema": "https://wails.io/schemas/config.v2.json",
+    "name": "Markdown Exporter",
+    "outputfilename": "MarkdownExporter",
+    "frontend:dir": ".",
+    "frontend:install": "pnpm install --frozen-lockfile",
+    "frontend:build": "pnpm build:desktop",
+    "frontend:dev:watcher": "pnpm dev --host 127.0.0.1 --port 5173 --strictPort",
+    "frontend:dev:serverUrl": "http://127.0.0.1:5173",
+    "wailsjsdir": ".",
+    "author": { "name": "richie-rich90454" },
+    "info": {
+        "companyName": "Markdown Exporter",
+        "productName": "Markdown Exporter",
+        "productVersion": "1.1.0",
+        "copyright": "MIT License",
+        "comments": "Private writing. Beautiful documents. Entirely offline."
+    }
+}

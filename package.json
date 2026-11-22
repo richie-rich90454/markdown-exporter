@@ -1,7 +1,7 @@
 {
     "name": "markdown-exporter",
     "version": "1.0.0",
-    "description": "Markdown to PDF exporter that runs entirely in the browser.",
+    "description": "Private Markdown writing and publishing for the browser and offline desktop.",
     "type": "module",
     "license": "MIT",
     "author": "richie-rich90454",
@@ -16,6 +16,12 @@
     "scripts": {
         "dev": "vite",
         "build": "vite build && node scripts/check-bundle-budgets.mjs",
+        "build:desktop": "vite build --mode desktop && node scripts/check-bundle-budgets.mjs",
+        "desktop:dev": "wails dev",
+        "desktop:build": "wails build -webview2 error -trimpath",
+        "desktop:test": "go test ./...",
+        "desktop:smoke": "wails build -tags desktop_smoke -o MarkdownExporterSmoke.exe -webview2 error -trimpath && node scripts/smoke-desktop.mjs",
+        "icons:build": "node scripts/build-icons.mjs",
         "build:test": "vite build --mode e2e",
         "preview": "vite preview",
         "preview:test": "vite preview --port 4173 --host 127.0.0.1",

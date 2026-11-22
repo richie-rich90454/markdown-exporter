@@ -18,6 +18,11 @@ import type { FileSaver } from "./port/FileSaver";
 import type { DraftRecovery } from "./port/DraftRecovery";
 import type { LocalDocuments } from "./port/LocalDocuments";
 import type { BookProjectFiles } from "./port/BookProjectFiles";
+import type { DesktopHost } from "./port/DesktopHost";
+import { desktopBridge, createDesktopHost } from "./adapter/desktop/DesktopBridge";
+import { DesktopDocuments } from "./adapter/desktop/DesktopDocuments";
+import { DesktopFileSaver } from "./adapter/desktop/DesktopFileSaver";
+import { DesktopDraftRecovery } from "./adapter/desktop/DesktopDraftRecovery";
 import type { EditorController as EditorControllerType } from "./application/EditorController";
 import type { ExportController as ExportControllerType } from "./application/ExportController";
 
@@ -26,6 +31,7 @@ import type { ExportController as ExportControllerType } from "./application/Exp
  * Everything is built once and injected through constructors.
  */
 export interface ApplicationContext {
+    readonly desktopHost?: DesktopHost;
     readonly editorStore: EditorStore;
     readonly previewStore: PreviewStore;
     readonly settingsStore: SettingsStore;
@@ -41,7 +47,9 @@ export interface ApplicationContext {
 
 export function createApplicationContext(): ApplicationContext {
     const clock = new SystemClock();
-    const fileSaver: FileSaver = new BrowserFileSaver();
+    const desktop = desktopBridge();
+    const fileSaver: FileSaver =
+        desktop === undefined ? new BrowserFileSaver() : new DesktopFileSaver(desktop);
     const renderer = new DeferredMarkdownRenderer(async () => {
         const [{ DirectDomWriter }, { IncrementalMarkdownRenderer }] = await Promise.all([
             import("./adapter/renderer/DirectDomWriter"),
@@ -85,8 +93,11 @@ export function createApplicationContext(): ApplicationContext {
         editorController: new EditorController(renderer, clock),
         exportController: new ExportController(exporters),
         fileSaver,
-        localDocuments: new BrowserLocalDocuments(),
+        ...(desktop === undefined ? {} : { desktopHost: createDesktopHost(desktop) }),
+        localDocuments:
+            desktop === undefined ? new BrowserLocalDocuments() : new DesktopDocuments(desktop),
         bookProjectFiles: new BrowserBookProjectFiles(),
-        draftRecovery: new BrowserDraftRecovery()
+        draftRecovery:
+            desktop === undefined ? new BrowserDraftRecovery() : new DesktopDraftRecovery(desktop)
     };
 }

@@ -238,7 +238,7 @@ async function writePreparedTarget(
         await writable.close();
     } catch (error) {
         try {
-            await writable.close();
+            await writable.abort?.();
         } catch {
             // Keep the original write error; the caller will restore the prior file contents.
         }

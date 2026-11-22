@@ -18,11 +18,13 @@ function contentSecurityPolicy(): Plugin {
             }
             const policy = [
                 "default-src 'self'",
-                "script-src 'self'",
+                mode === "desktop" ? "script-src 'self' 'unsafe-inline'" : "script-src 'self'",
                 "style-src 'self' 'unsafe-inline'",
                 "img-src 'self' data: blob:",
                 "font-src 'self' data:",
-                "connect-src 'self' blob:",
+                mode === "desktop"
+                    ? "connect-src 'self' blob: wails: http://wails.localhost"
+                    : "connect-src 'self' blob:",
                 "worker-src 'self' blob:",
                 "manifest-src 'self'",
                 "form-action 'none'",

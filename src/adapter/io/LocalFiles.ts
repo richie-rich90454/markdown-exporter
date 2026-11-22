@@ -80,7 +80,9 @@ export class BrowserLocalDocuments implements LocalDocuments {
             await writable.close();
         } catch (error) {
             try {
-                await writable.close();
+                // close() commits the temporary file. Abort failed writes so
+                // a partial replacement cannot overwrite the original file.
+                await writable.abort?.();
             } catch {
                 // Keep the original write error as the useful failure.
             }

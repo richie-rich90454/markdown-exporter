@@ -35,7 +35,16 @@ const noEmojiPlugin = {
 };
 
 export default tseslint.config(
-    { ignores: ["dist/", "playwright-report/", "test-results/", "node_modules/"] },
+    {
+        ignores: [
+            "dist/",
+            "build/",
+            "wailsjs/",
+            "playwright-report/",
+            "test-results/",
+            "node_modules/"
+        ]
+    },
     js.configs.recommended,
     ...tseslint.configs.recommendedTypeChecked,
     solid.configs.recommended,

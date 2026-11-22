@@ -1,14 +1,18 @@
 # Markdown Exporter
 
-A local-first Markdown writing and publishing app for the browser. Documents stay on the device; the app can be hosted as a static site and works offline after its shell and used assets have been cached.
+A local-first Markdown writing and publishing app for the browser and desktop. Documents stay on the device; the web app can be hosted as a static site and works offline after its shell and used assets have been cached.
+
+Also available as a **Wails desktop app**, with embedded offline assets, native file and folder dialogs, atomic saves, durable book recovery, and File/View menus. Run `pnpm desktop:build` to produce a native package. See [desktop setup and behavior](docs/desktop.md) and the [SVG identity](docs/brand.md).
 
 ## Writing
 
+- Start with a blank document or a meeting notes, project brief, research report, or how-to template. Give it a name, edit the prompts, check the preview, then export a finished document.
+- **New document** saves a Markdown backup of the current draft before replacing it, through a browser download or native desktop save dialog; book backups use `.mdbook` and include chapters and assets. Use **Open file** or **Open book** to return to a backup.
 - Rich editing opens by default, with CodeMirror source and inline-markdown modes available from the editor toolbar.
 - Formatting commands cover headings, emphasis, links, tables, images, code, footnotes, and math. Source Markdown remains the saved document format.
 - The paginated preview and PDF exporter use the same page-layout engine. Page presets include A4, A5, 6 × 9 inches, Letter, Legal, and custom dimensions.
 - The manuscript sidebar supports chapters, front and back matter, reorder, rename, delete, outlines, cross-section search and replacement, and per-section and total word counts.
-- Recovery stores the current book project in IndexedDB, with a local-storage fallback. Folder and `.mdbook` saves keep assets and metadata with the Markdown chapters.
+- Browser recovery stores the current book project in IndexedDB, with a local-storage fallback. Desktop recovery uses an atomic file in the local application profile. Folder and `.mdbook` saves keep assets and metadata with the Markdown chapters.
 
 ## Publishing
 
