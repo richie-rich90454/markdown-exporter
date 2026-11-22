@@ -184,7 +184,7 @@ jobs:
               run: |
                   set -euo pipefail
                   wails build -s -trimpath -platform darwin/${{ matrix.goarch }}
-                  app="build/bin/MarkdownExporter.app"
+                  app="build/bin/Markdown Exporter.app"
                   executable="$app/Contents/MacOS/MarkdownExporter"
                   test -d "$app"
                   test -x "$executable"
@@ -211,7 +211,7 @@ jobs:
                     arm64:*aarch64*) ;;
                     *) echo 'The Linux binary architecture does not match its native runner.' >&2; exit 1 ;;
                   esac
-                  scripts/package-linux-release.sh "$RELEASE_VERSION" release-assets
+                  bash scripts/package-linux-release.sh "$RELEASE_VERSION" release-assets
 
             - uses: actions/upload-artifact@v7
               with:
