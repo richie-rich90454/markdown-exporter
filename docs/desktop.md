@@ -17,6 +17,19 @@ For development, run `pnpm desktop:dev`. Wails starts the existing Vite frontend
 
 macOS builds require Xcode command line tools. Linux builds require GTK 3 and WebKitGTK development packages; on Ubuntu 24.04 install `build-essential libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config`, then run `wails build -trimpath -tags webkit2_41`. Build each OS on that OS. The desktop CI workflow provides native Windows, macOS, and Linux build jobs. Windows is the locally validated package; CI results establish the other platforms' build status.
 
+## Release downloads
+
+Stable releases are published from version tags after the release workflow verifies the app, builds all packages on native runners, and generates `SHA256SUMS.txt`. Each release includes:
+
+- Windows x64 portable executable and NSIS installer. If Microsoft Edge WebView2 Runtime is absent, the installer launches Microsoft's bootstrapper to install it; an internet connection is needed for that prerequisite download. Once WebView2 is installed, the application itself can run offline.
+- Separate Intel (`x86_64`) and Apple Silicon (`arm64`) macOS `.app` archives. The current release builds are unsigned and not notarized; macOS may require the user to approve the app through Finder's Open command on first launch.
+- Linux amd64 and arm64 `.tar.gz` bundles and Debian `.deb` packages. The Debian packages declare GTK 3 and WebKitGTK 4.1 runtime dependencies. The tarball contains the executable and installation notes; install the same runtime libraries before launching it.
+- A build-information file identifying the source commit and CI run, together with SHA-256 checksums for every downloadable package.
+
+Linux downloads require a compatible GTK 3 and WebKitGTK 4.1 runtime. The Windows app requires WebView2; the macOS app requires a supported macOS release. These operating-system components are not embedded in the Linux and macOS packages. The app's frontend, fonts, math, and diagram assets are embedded in the desktop executable.
+
+Release metadata is version-checked across `package.json` and `wails.json`. Update both values together before creating a tag. The workflow runs on release pull requests and `v*` tags; release publication is gated on the full verification job and every native package build.
+
 ## Files and recovery
 
 Native dialogs open Markdown files, `.mdbook` archives, and folders. Save writes back to the selected file; Save as chooses another target. All four publication formats use native save dialogs. Cancelling a dialog leaves the current work in place and does not report success.

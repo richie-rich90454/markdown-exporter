@@ -4,6 +4,10 @@ A local-first Markdown writing and publishing app for the browser and desktop. D
 
 Also available as a **Wails desktop app**, with embedded offline assets, native file and folder dialogs, atomic saves, durable book recovery, and File/View menus. Run `pnpm desktop:build` to produce a native package. See [desktop setup and behavior](docs/desktop.md) and the [SVG identity](docs/brand.md).
 
+## Desktop downloads
+
+The [GitHub Releases page](https://github.com/richie-rich90454/markdown-exporter/releases/latest) provides Windows portable and installer builds, Intel and Apple Silicon macOS app bundles, and Linux amd64/arm64 tarballs and Debian packages. Review the platform requirements and installation notes in [docs/desktop.md](docs/desktop.md); verify downloaded files with the release's `SHA256SUMS.txt`.
+
 ## Writing
 
 - Start with a blank document or a meeting notes, project brief, research report, or how-to template. Give it a name, edit the prompts, check the preview, then export a finished document.
