@@ -18,6 +18,8 @@
     "ignorePatterns": [
         "node_modules/",
         "dist/",
+        "build/",
+        "wailsjs/",
         "package-lock.json",
         "*.min.js",
         "*.min.css",

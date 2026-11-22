@@ -162,3 +162,9 @@ Thumbs.db
 
 # Local overrides
 *.local
+
+# Wails output and generated bridge (the typed adapter is maintained in src/).
+build/bin/
+wailsjs/
+*.syso
+package.json.md5
