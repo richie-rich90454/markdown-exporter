@@ -285,8 +285,8 @@ jobs:
               run: |
                   set -euo pipefail
                   title="Markdown Exporter $RELEASE_VERSION"
-                  if [ -f "docs/releases/$RELEASE_VERSION.md" ]; then
-                    notes_args=(--notes-file "docs/releases/$RELEASE_VERSION.md")
+                  if [ -f "docs/releases/v$RELEASE_VERSION.md" ]; then
+                    notes_args=(--notes-file "docs/releases/v$RELEASE_VERSION.md")
                   else
                     notes_args=(--generate-notes)
                   fi
