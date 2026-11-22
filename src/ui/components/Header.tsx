@@ -2,7 +2,7 @@ import { For, Show, createSignal } from "solid-js";
 
 import type { ApplicationContext } from "../../ApplicationContext";
 import type { ExportFormat } from "../../domain/ExportFormat";
-import { EXPORT_FORMAT_LABELS } from "../../domain/ExportFormat";
+import { EXPORT_FORMAT_LABELS, EXPORT_FORMAT_DESCRIPTIONS } from "../../domain/ExportFormat";
 
 export interface HeaderProps {
     context: ApplicationContext;
@@ -54,7 +54,16 @@ export function Header(props: HeaderProps) {
 
     return (
         <header class="header">
-            <h1 class="wordmark">Markdown Exporter</h1>
+            <h1 class="wordmark">
+                <img
+                    class="wordmark__icon"
+                    src={`${import.meta.env.BASE_URL}brand/icon.svg`}
+                    alt=""
+                    width="28"
+                    height="28"
+                />
+                Markdown Exporter
+            </h1>
             <div class="header__actions">
                 <Show when={props.showPaneToggle}>
                     <button
@@ -68,13 +77,24 @@ export function Header(props: HeaderProps) {
                 <button
                     type="button"
                     class="button button--ghost"
-                    onClick={() =>
+                    onClick={() => {
+                        const host = props.context.desktopHost;
+                        if (host !== undefined) {
+                            void host
+                                .showPrivacy()
+                                .catch(() =>
+                                    props.context.exportStore.fail(
+                                        "Could not open the privacy information."
+                                    )
+                                );
+                            return;
+                        }
                         window.open(
                             new URL("privacy.html", document.baseURI).href,
                             "_blank",
                             "noopener"
-                        )
-                    }
+                        );
+                    }}
                 >
                     Privacy
                 </button>
@@ -93,7 +113,9 @@ export function Header(props: HeaderProps) {
                         disabled={props.context.exportStore.isBusy()}
                         onClick={() => props.onExportActive()}
                     >
-                        Export {EXPORT_FORMAT_LABELS[activeFormat()]}
+                        {props.context.exportStore.isBusy()
+                            ? "Exporting…"
+                            : `Export ${EXPORT_FORMAT_LABELS[activeFormat()]}`}
                     </button>
                     <button
                         type="button"
@@ -134,12 +156,18 @@ export function Header(props: HeaderProps) {
                                         aria-current={
                                             format === activeFormat() ? "true" : undefined
                                         }
+                                        disabled={props.context.exportStore.isBusy()}
+                                        aria-label={EXPORT_FORMAT_LABELS[format]}
                                         onClick={() => {
+                                            props.context.exportStore.setActiveFormat(format);
                                             props.onExport(format);
                                             closeMenu();
                                         }}
                                     >
                                         {EXPORT_FORMAT_LABELS[format]}
+                                        <span class="export__description">
+                                            {EXPORT_FORMAT_DESCRIPTIONS[format]}
+                                        </span>
                                     </button>
                                 )}
                             </For>

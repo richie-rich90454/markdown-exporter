@@ -15,7 +15,12 @@ if (root === null) {
 const context = createApplicationContext();
 document.documentElement.dataset.theme = context.settingsStore.theme();
 
-if (import.meta.env.PROD && "serviceWorker" in navigator && location.protocol === "https:") {
+if (
+    context.desktopHost === undefined &&
+    import.meta.env.PROD &&
+    "serviceWorker" in navigator &&
+    location.protocol === "https:"
+) {
     const serviceWorkerUrl = new URL(`${import.meta.env.BASE_URL}sw.js`, location.href);
     void navigator.serviceWorker
         .register(serviceWorkerUrl, { scope: import.meta.env.BASE_URL })

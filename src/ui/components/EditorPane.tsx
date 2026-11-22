@@ -27,6 +27,8 @@ import {
 } from "solid-js";
 
 import type { ApplicationContext } from "../../ApplicationContext";
+import { templateSource, type DocumentTemplate } from "../../domain/DocumentTemplates";
+import { NewDocumentDialog } from "./NewDocumentDialog";
 import type { BookProject } from "../../domain/BookProject";
 import { cloneBookProject, sameBookProject } from "../../domain/BookProjectSnapshot";
 import type { EditorHistoryChangeKind, EditorHistoryPatch } from "../../domain/EditorHistory";
@@ -54,6 +56,7 @@ export interface EditorPaneProps {
     onInput: (value: string, patch?: EditorHistoryPatch, kind?: EditorHistoryChangeKind) => void;
     onHistoryStep: () => void;
     editorRef: (focus: (() => void) | undefined) => void;
+    sourceRef: (read: (() => string) | undefined) => void;
 }
 
 interface BookReplacementHistoryEntry {
@@ -210,6 +213,8 @@ function createInlineCodeMirrorExtensions(runtime: CodeMirrorRuntime): InlineCod
 }
 
 export function EditorPane(props: EditorPaneProps) {
+    const [newDocumentOpen, setNewDocumentOpen] = createSignal(false);
+    const [initialized, setInitialized] = createSignal(false);
     const [mode, setMode] = createSignal<EditorMode>("rich");
     const [fileName, setFileName] = createSignal("untitled.md");
     const [fileStatus, setFileStatus] = createSignal("Draft recovery stays on this device.");
@@ -231,6 +236,7 @@ export function EditorPane(props: EditorPaneProps) {
     let activeFileBaseline: string | undefined;
     let activeBookBaseline: BookProject | undefined;
     let recoveryTimer: ReturnType<typeof setTimeout> | undefined;
+    let recoveryRevision = 0;
     let destroyed = false;
     let syncingFromStore = false;
     let bookReplacementSequence = 0;
@@ -272,11 +278,104 @@ export function EditorPane(props: EditorPaneProps) {
     });
     let wordCountTimer: ReturnType<typeof setTimeout> | undefined;
     let focusModeButton: HTMLButtonElement | undefined;
+    let newDocumentButton: HTMLButtonElement | undefined;
+    let closing = false;
+    let fileOperations: Promise<void> = Promise.resolve();
+    let pendingFileOperations = 0;
+
+    async function runFileOperation(operation: () => Promise<void>): Promise<void> {
+        if (closing) return;
+        pendingFileOperations++;
+        const pending = fileOperations.then(operation);
+        fileOperations = pending.catch(() => undefined);
+        try {
+            await pending;
+        } finally {
+            pendingFileOperations--;
+        }
+    }
 
     onMount(() => {
         void initializeEditor();
         window.addEventListener("keydown", onFocusModeKeydown, true);
+        const host = props.context.desktopHost;
+        if (host !== undefined) {
+            const stopCommands = host.onCommand((command) => {
+                if (!initialized() || document.querySelector("dialog[open]") !== null) return;
+                switch (command) {
+                    case "new":
+                        if (newDocumentButton !== undefined) openNewDocument(newDocumentButton);
+                        break;
+                    case "open":
+                        void openFile();
+                        break;
+                    case "open-book":
+                        void openBook();
+                        break;
+                    case "open-folder":
+                        void openFolder();
+                        break;
+                    case "save":
+                        void saveCurrent();
+                        break;
+                    case "save-as":
+                        void saveAs();
+                        break;
+                    case "save-book":
+                        void saveBookAs();
+                        break;
+                    case "focus":
+                        toggleDistractionFree();
+                        break;
+                }
+            });
+            const stopClose = host.onBeforeClose(() => {
+                if (closing) return;
+                if (pendingFileOperations > 0) {
+                    setFileStatus("Wait for the save or backup to finish before closing.");
+                    return;
+                }
+                if (props.context.exportStore.isBusy()) {
+                    setFileStatus("Wait for the export to finish before closing.");
+                    return;
+                }
+                closing = true;
+                if (recoveryTimer !== undefined) clearTimeout(recoveryTimer);
+                void flushRecoveryForClose()
+                    .then(() => host.confirmClose())
+                    .catch((error: unknown) => {
+                        closing = false;
+                        setFileStatus(
+                            `The app stayed open because your draft could not be saved: ${errorMessage(error)}. Save a file before trying again.`
+                        );
+                    });
+            });
+            onCleanup(() => {
+                stopCommands();
+                stopClose();
+            });
+        }
     });
+
+    async function flushRecoveryForClose(): Promise<void> {
+        const host = props.context.desktopHost;
+        if (host === undefined) return;
+        // A slow disk must not drop edits made while the first snapshot writes.
+        // Recheck the complete book as metadata and assets can also change.
+        for (;;) {
+            const source = currentSource();
+            props.onInput(source);
+            const project = cloneBookProject(bookStore.current());
+            const entryId = bookStore.activeEntryId();
+            await saveRecoveryNow(source);
+            if (
+                currentSource() === source &&
+                entryId === bookStore.activeEntryId() &&
+                sameBookProject(project, bookStore.current())
+            )
+                return;
+        }
+    }
 
     createEffect(() => {
         bookStore.current();
@@ -313,15 +412,27 @@ export function EditorPane(props: EditorPaneProps) {
         if (view !== undefined) activeEditorViews.delete(view);
         view?.destroy();
         props.editorRef(undefined);
+        props.sourceRef(undefined);
     });
 
     async function initializeEditor(): Promise<void> {
         const mayTakeInitialFocus = document.activeElement === document.body;
+        const initialRevision = props.context.editorStore.current().revision;
+        const initialProject = bookStore.current();
         let initial = props.context.editorStore.current().source;
         if (initial.length === 0) {
-            const recovered = await props.context.draftRecovery.load();
+            const recovered = await props.context.draftRecovery.load().catch(() => {
+                setFileStatus("Local recovery storage is unavailable; save a file to keep a copy.");
+                return null;
+            });
+            if (destroyed) return;
+            // Include rich edits still waiting for their synchronization timer
+            // before deciding whether recovery may replace the document.
+            currentSource();
             if (
                 recovered !== null &&
+                props.context.editorStore.current().revision === initialRevision &&
+                bookStore.current() === initialProject &&
                 (recovered.source.length > 0 || recovered.bookProject !== undefined)
             ) {
                 if (recovered.bookProject !== undefined) {
@@ -349,6 +460,7 @@ export function EditorPane(props: EditorPaneProps) {
                         : "Recovered the book project from this device."
                 );
             }
+            initial = props.context.editorStore.current().source;
         }
         if (destroyed || editorHost === undefined) return;
         e2eSourceHook = () => currentSource();
@@ -361,7 +473,58 @@ export function EditorPane(props: EditorPaneProps) {
             if (mode() === "rich") richFocus?.();
             else view?.focus();
         });
+        props.sourceRef(currentSource);
         if (mode() !== "rich") await initializeSourceEditor(initial, mode(), mayTakeInitialFocus);
+        setInitialized(true);
+        await props.context.desktopHost?.ready();
+    }
+
+    function hasCurrentDocument(): boolean {
+        return props.context.editorStore.current().source.length > 0 || bookStore.isBookProject();
+    }
+
+    function openNewDocument(trigger: HTMLButtonElement): void {
+        // Safari does not focus buttons on pointer activation. Give the native
+        // dialog a consistent return target for Escape and Close.
+        trigger.focus();
+        setNewDocumentOpen(true);
+    }
+
+    async function createDocument(template: DocumentTemplate, title: string): Promise<void> {
+        await runFileOperation(() => createDocumentOperation(template, title));
+    }
+
+    async function createDocumentOperation(
+        template: DocumentTemplate,
+        title: string
+    ): Promise<void> {
+        const source = currentSource();
+        // Finish the backup before detaching any open file or replacing recovery.
+        if (hasCurrentDocument()) {
+            bookStore.updateActive(source);
+            if (bookStore.isBookProject()) {
+                const archive = await props.context.bookProjectFiles.writeArchive(
+                    bookStore.current()
+                );
+                await props.context.fileSaver.saveBlob(
+                    new Blob([archive as BlobPart], { type: "application/zip" }),
+                    `${slug(bookStore.current().manifest.metadata.title)}-backup.mdbook`
+                );
+            } else {
+                await downloadSource(source, `${removeExtension(fileName())}-backup.md`);
+            }
+        }
+        const name = title.trim() || template.title;
+        replaceDocument(templateSource(template, name), `${slug(name)}.md`);
+        setFolderOpen(false);
+        setFolderFiles([]);
+        setFolderName("");
+        setNewDocumentOpen(false);
+        setFileStatus(`Created ${name}. Save a Markdown copy or export a finished document.`);
+        requestAnimationFrame(() => {
+            if (mode() === "rich") richFocus?.();
+            else view?.focus();
+        });
     }
 
     async function initializeSourceEditor(
@@ -372,7 +535,8 @@ export function EditorPane(props: EditorPaneProps) {
     ): Promise<void> {
         if (destroyed || editorHost === undefined) return;
         const runtime = await loadCodeMirrorRuntime();
-        if (destroyed || editorHost === undefined || selectedMode !== mode()) return;
+        if (destroyed || editorHost === undefined || selectedMode !== mode() || view !== undefined)
+            return;
         inlineCompartment ??= new runtime.Compartment();
         const currentStoreSource = props.context.editorStore.current().source;
         const latestSource = selectedMode === mode() ? currentStoreSource : source;
@@ -516,13 +680,23 @@ export function EditorPane(props: EditorPaneProps) {
 
     function scheduleRecovery(source: string): void {
         if (recoveryTimer !== undefined) clearTimeout(recoveryTimer);
+        const revision = ++recoveryRevision;
+        if (closing) return;
+        setFileStatus("Unsaved changes; saving a recovery draft…");
         recoveryTimer = setTimeout(() => {
             void saveRecoveryNow(source).then(
-                () => setFileStatus("Draft recovered automatically on this device."),
-                () =>
-                    setFileStatus(
-                        "Local recovery storage is unavailable; save a file to keep a copy."
-                    )
+                () => {
+                    if (revision === recoveryRevision && !closing)
+                        setFileStatus(
+                            "Draft saved automatically on this device. Save a file to keep a separate copy."
+                        );
+                },
+                () => {
+                    if (revision === recoveryRevision && !closing)
+                        setFileStatus(
+                            "Local recovery storage is unavailable; save a file to keep a copy."
+                        );
+                }
             );
         }, 600);
     }
@@ -702,6 +876,10 @@ export function EditorPane(props: EditorPaneProps) {
     }
 
     async function saveCurrent(): Promise<void> {
+        await runFileOperation(saveCurrentOperation);
+    }
+
+    async function saveCurrentOperation(): Promise<void> {
         const source = currentSource();
         props.onInput(source);
         try {
@@ -727,16 +905,26 @@ export function EditorPane(props: EditorPaneProps) {
                 setFileStatus(`Saved ${activeBookName ?? "the book project"}.`);
                 return;
             }
-            if (activeBookName !== undefined && /\.mdbook$/i.test(activeBookName)) {
+            if (
+                props.context.bookProjectStore.isBookProject() ||
+                (activeBookName !== undefined && /\.mdbook$/i.test(activeBookName))
+            ) {
+                if (props.context.desktopHost !== undefined) {
+                    await saveBookAsOperation();
+                    return;
+                }
                 props.context.bookProjectStore.updateActive(source);
+                const archiveName =
+                    activeBookName ??
+                    `${slug(props.context.bookProjectStore.current().manifest.metadata.title)}.mdbook`;
                 const archive = await props.context.bookProjectFiles.writeArchive(
                     props.context.bookProjectStore.current()
                 );
-                props.context.fileSaver.saveBlob(
+                await props.context.fileSaver.saveBlob(
                     new Blob([archive as BlobPart], { type: "application/zip" }),
-                    activeBookName
+                    archiveName
                 );
-                setFileStatus(`Downloaded ${activeBookName}.`);
+                setFileStatus(`Downloaded ${archiveName}.`);
                 return;
             }
             if (activeFileHandle !== undefined) {
@@ -767,7 +955,11 @@ export function EditorPane(props: EditorPaneProps) {
                 setFileStatus(`Saved ${fileName()} in ${folderName()}.`);
                 return;
             }
-            downloadSource(source, fileName());
+            if (props.context.desktopHost !== undefined) {
+                await saveAsOperation();
+                return;
+            }
+            await downloadSource(source, fileName());
             setFileStatus(`Downloaded ${fileName()}; choose Save as to write to a local file.`);
         } catch (error) {
             await preserveRecoveryAfterSaveFailure(source, `Could not save ${fileName()}`, error);
@@ -775,13 +967,17 @@ export function EditorPane(props: EditorPaneProps) {
     }
 
     async function saveAs(): Promise<void> {
+        await runFileOperation(saveAsOperation);
+    }
+
+    async function saveAsOperation(): Promise<void> {
         const source = currentSource();
         props.onInput(source);
         try {
             const handle = await props.context.localDocuments.pickSaveFile(fileName());
             if (handle === undefined) {
                 const downloadName = fileNameFromPath(fileName());
-                downloadSource(source, downloadName);
+                await downloadSource(source, downloadName);
                 activeFileHandle = undefined;
                 activeFileBaseline = undefined;
                 activeDirectoryHandle = undefined;
@@ -826,6 +1022,10 @@ export function EditorPane(props: EditorPaneProps) {
     }
 
     async function saveBookAs(): Promise<void> {
+        await runFileOperation(saveBookAsOperation);
+    }
+
+    async function saveBookAsOperation(): Promise<void> {
         const source = currentSource();
         props.onInput(source);
         try {
@@ -848,7 +1048,7 @@ export function EditorPane(props: EditorPaneProps) {
             const handle = await props.context.localDocuments.pickSaveFile(suggestedName);
             const archive = await props.context.bookProjectFiles.writeArchive(project);
             if (handle === undefined) {
-                props.context.fileSaver.saveBlob(
+                await props.context.fileSaver.saveBlob(
                     new Blob([archive as BlobPart], { type: "application/zip" }),
                     suggestedName
                 );
@@ -982,8 +1182,8 @@ export function EditorPane(props: EditorPaneProps) {
         setFileStatus(`Loaded ${entries.length} Markdown files from the selected folder.`);
     }
 
-    function downloadSource(source: string, name: string): void {
-        props.context.fileSaver.saveBlob(
+    async function downloadSource(source: string, name: string): Promise<void> {
+        await props.context.fileSaver.saveBlob(
             new Blob([source], { type: "text/markdown;charset=utf-8" }),
             name || "untitled.md"
         );
@@ -1469,6 +1669,17 @@ export function EditorPane(props: EditorPaneProps) {
         >
             <div class="editor-toolbar" role="toolbar" aria-label="Editor controls">
                 <div class="editor-toolbar__files">
+                    <button
+                        type="button"
+                        class="editor-file-action"
+                        disabled={!initialized()}
+                        ref={(element) => {
+                            newDocumentButton = element;
+                        }}
+                        onClick={(event) => openNewDocument(event.currentTarget)}
+                    >
+                        New document
+                    </button>
                     <button
                         type="button"
                         class="editor-file-action"
@@ -2103,6 +2314,41 @@ export function EditorPane(props: EditorPaneProps) {
                     />
                 </div>
             </div>
+            <Show
+                when={
+                    initialized() &&
+                    props.context.editorStore.current().isEmpty &&
+                    !bookStore.isBookProject()
+                }
+            >
+                <aside class="writing-start" aria-label="Getting started">
+                    <div>
+                        <strong>From a blank page to something shareable.</strong>
+                        <p>
+                            Write here, paste Markdown, or start with meeting notes, a project
+                            brief, a report, or a guide.
+                        </p>
+                    </div>
+                    <button
+                        type="button"
+                        class="button button--ghost"
+                        onClick={(event) => openNewDocument(event.currentTarget)}
+                    >
+                        Browse templates
+                    </button>
+                    <p class="writing-start__hint">
+                        1. Write · 2. Check the preview · 3. Export PDF, Word, HTML, or EPUB
+                    </p>
+                </aside>
+            </Show>
+            <Show when={newDocumentOpen()}>
+                <NewDocumentDialog
+                    desktop={props.context.desktopHost !== undefined}
+                    hasCurrentDocument={hasCurrentDocument()}
+                    onCreate={createDocument}
+                    onClose={() => setNewDocumentOpen(false)}
+                />
+            </Show>
             <div class="editor-footer" role="status" aria-live="polite">
                 {fileStatus()}
             </div>

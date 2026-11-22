@@ -257,6 +257,19 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
     function flushMarkdown(): void {
         if (editor === undefined) return;
         if (syncTimer !== undefined) clearTimeout(syncTimer);
+        editor.action((ctx) => {
+            const view = ctx.get(editorViewCtx);
+            // ProseMirror can defer reading browser edits (including composition
+            // changes). Flush its observer before taking a save/export snapshot.
+            // This internal API is guarded because it is absent from the public types.
+            const pending = (
+                view as unknown as {
+                    domObserver?: { forceFlush?: () => void; flush?: () => void };
+                }
+            ).domObserver;
+            pending?.forceFlush?.();
+            pending?.flush?.();
+        });
         const serialized = serializeMarkdown();
         const markdown = preserveMarkdownSource(fidelitySource, fidelityBaseline, serialized);
         if (markdown !== lastExternalSource) {

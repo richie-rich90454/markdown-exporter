@@ -18,6 +18,30 @@ function fileHandle(name: string, source = "# file"): LocalFileHandle {
 }
 
 describe("LocalFiles", () => {
+    it("does not commit a partial file when writing fails", async () => {
+        let closed = false;
+        let aborted = false;
+        const handle = {
+            ...fileHandle("draft.md"),
+            createWritable: () =>
+                Promise.resolve({
+                    write: () => Promise.reject(new Error("Disk full")),
+                    close: () => {
+                        closed = true;
+                        return Promise.resolve();
+                    },
+                    abort: () => {
+                        aborted = true;
+                        return Promise.resolve();
+                    }
+                })
+        };
+        await expect(new BrowserLocalDocuments().writeFile(handle, "New contents")).rejects.toThrow(
+            "Disk full"
+        );
+        expect(closed).toBe(false);
+        expect(aborted).toBe(true);
+    });
     it("uses separate file-picker filters for Markdown documents and book archives", async () => {
         const previousPicker = Object.getOwnPropertyDescriptor(window, "showOpenFilePicker");
         const requests: {

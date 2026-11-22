@@ -548,7 +548,7 @@ test("opens a Markdown file through the picker fallback and recovers its local d
     const editor = page.getByLabel("Markdown editor");
     await expect(editor).toContainText("# Imported locally");
     await expect(page.locator(".preview__flow h1")).toHaveText("Imported locally");
-    await expect(page.locator(".editor-footer")).toContainText("Draft recovered automatically");
+    await expect(page.locator(".editor-footer")).toContainText("Draft saved automatically");
 
     await page.reload();
     await expect(page.locator(".editor-footer")).toContainText("Recovered a local draft");

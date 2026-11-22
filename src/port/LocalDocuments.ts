@@ -8,6 +8,7 @@ export interface LocalFileHandle {
 export interface LocalFileWritable {
     write(data: string | Uint8Array | Blob): Promise<void>;
     close(): Promise<void>;
+    abort?(): Promise<void>;
 }
 
 export interface LocalDirectoryHandle {

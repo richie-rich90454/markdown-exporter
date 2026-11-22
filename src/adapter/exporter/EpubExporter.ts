@@ -178,7 +178,7 @@ export class EpubExporter implements DocumentExporter {
 
         const { zipSync } = await import("fflate");
         const archive = zipSync(files, { level: 6 });
-        this.fileSaver.saveBlob(
+        await this.fileSaver.saveBlob(
             new Blob([archive], { type: "application/epub+zip" }),
             `${publicationSlug(title, "book")}.epub`
         );

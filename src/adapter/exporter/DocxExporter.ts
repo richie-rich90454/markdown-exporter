@@ -215,7 +215,7 @@ export class DocxExporter implements DocumentExporter {
             ]
         });
         const blob = await Packer.toBlob(document);
-        this.fileSaver.saveBlob(blob, `${publicationSlug(title)}.docx`);
+        await this.fileSaver.saveBlob(blob, `${publicationSlug(title)}.docx`);
         return ExportResults.success(this.supportedFormat);
     }
 }

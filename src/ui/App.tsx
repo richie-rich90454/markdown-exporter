@@ -40,6 +40,7 @@ export function App(props: AppProps) {
     const [announcement, setAnnouncement] = createSignal("");
 
     let focusEditor: (() => void) | undefined;
+    let readEditorSource: (() => string) | undefined;
     let previewFlow: HTMLDivElement | undefined;
     let main: HTMLElement | undefined;
     let pendingRevision = -1;
@@ -65,6 +66,13 @@ export function App(props: AppProps) {
     });
 
     onMount(() => {
+        const stopDesktopCommands = context.desktopHost?.onCommand((command) => {
+            if (document.querySelector("dialog[open]") !== null) return;
+            if (command === "export") void exportActiveFormat(exportStore.activeFormat());
+            else if (command === "page-setup") togglePageSetup();
+            else if (command === "shortcuts") toggleShortcuts();
+        });
+        onCleanup(() => stopDesktopCommands?.());
         const media = window.matchMedia("(max-width: 899px)");
         const applyMedia = (): void => {
             setNarrow(media.matches);
@@ -176,13 +184,24 @@ export function App(props: AppProps) {
     }
 
     async function exportActiveFormat(format: ExportFormat): Promise<void> {
+        if (exportStore.isBusy()) return;
+        exportStore.begin();
+        // Rich editing synchronizes on a timer; exports must flush it first.
+        const latestSource = readEditorSource?.();
+        if (latestSource !== undefined) onSourceChange(latestSource);
         const currentDocument = context.editorStore.current();
-        if (currentDocument.isEmpty) {
+        const hasBookContent =
+            context.bookProjectStore.isBookProject() &&
+            context.bookProjectStore.current().manifest.entries.some((entry) => {
+                const source = context.bookProjectStore.current().files[entry.path];
+                return typeof source === "string" && source.trim().length > 0;
+            });
+        if (currentDocument.isEmpty && !hasBookContent) {
             exportStore.fail("Write some Markdown before exporting.");
             return;
         }
-        const rendered = await ensureCurrentPreview();
-        if (rendered === null || rendered.isEmpty) {
+        const rendered = await ensureCurrentPreview(hasBookContent);
+        if (rendered === null || (rendered.isEmpty && !hasBookContent)) {
             exportStore.fail(
                 previewStore.lastError() ??
                     "The preview is still updating. Try exporting again in a moment."
@@ -193,7 +212,6 @@ export function App(props: AppProps) {
             exportStore.fail("The preview is not ready yet.");
             return;
         }
-        exportStore.begin();
         const result = await context.exportController.export(
             format,
             rendered,
@@ -208,10 +226,10 @@ export function App(props: AppProps) {
         exportStore.settle(result);
     }
 
-    async function ensureCurrentPreview(): Promise<RenderedDocument | null> {
+    async function ensureCurrentPreview(allowEmpty = false): Promise<RenderedDocument | null> {
         for (let attempt = 0; attempt < 2; attempt += 1) {
             const document = context.editorStore.current();
-            if (document.isEmpty) return null;
+            if (document.isEmpty && !allowEmpty) return null;
             if (renderedRevision !== document.revision) {
                 debouncer.cancel();
                 pendingRevision = document.revision;
@@ -308,6 +326,9 @@ export function App(props: AppProps) {
                             debouncer.schedule();
                         }}
                         editorRef={setEditor}
+                        sourceRef={(read) => {
+                            readEditorSource = read;
+                        }}
                     />
                 </Suspense>
                 <SplitDivider

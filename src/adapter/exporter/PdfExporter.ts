@@ -84,7 +84,7 @@ export class PdfExporter implements DocumentExporter {
                     .join("; ")
             }
         );
-        this.fileSaver.saveBlob(
+        await this.fileSaver.saveBlob(
             new Blob([bytes as BlobPart], { type: "application/pdf" }),
             `${publicationSlug(title)}.pdf`
         );

@@ -1,3 +1,3 @@
 export interface FileSaver {
-    saveBlob(blob: Blob, name: string): void;
+    saveBlob(blob: Blob, name: string): void | Promise<void>;
 }

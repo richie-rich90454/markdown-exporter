@@ -44,6 +44,14 @@ export class ExportController {
         try {
             return await exporter.export(request);
         } catch (error) {
+            if (
+                typeof error === "object" &&
+                error !== null &&
+                "name" in error &&
+                error.name === "AbortError"
+            ) {
+                return ExportResults.cancelled(format);
+            }
             return ExportResults.failure(format, describe(error));
         }
     }
