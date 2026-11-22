@@ -1,0 +1,53 @@
+name: Desktop builds
+
+on:
+    workflow_dispatch:
+    pull_request:
+        branches: [main]
+
+jobs:
+    build:
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - os: windows-latest
+                      flags: -webview2 error
+                      tags: ""
+                    - os: macos-latest
+                      flags: ""
+                      tags: ""
+                    - os: ubuntu-24.04
+                      flags: -tags webkit2_41
+                      tags: webkit2_41
+        runs-on: ${{ matrix.os }}
+        steps:
+            - uses: actions/checkout@v7
+            - uses: pnpm/action-setup@v6
+              with:
+                  version: 12.10.1
+            - uses: actions/setup-node@v7
+              with:
+                  node-version: 24
+                  cache: pnpm
+            - uses: actions/setup-go@v6
+              with:
+                  go-version: "1.26.0"
+            - name: Install Linux native libraries
+              if: runner.os == 'Linux'
+              run: sudo apt-get update && sudo apt-get install -y build-essential libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config
+            - run: pnpm install --frozen-lockfile
+            - run: pnpm typecheck
+            - run: pnpm build:desktop
+            - name: Test native backend
+              env:
+                  GOFLAGS: -tags=${{ matrix.tags }}
+              run: go test ./...
+            - name: Install pinned Wails CLI
+              run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0
+            - name: Package desktop app
+              run: wails build -s -trimpath ${{ matrix.flags }}
+            - uses: actions/upload-artifact@v6
+              with:
+                  name: MarkdownExporter-${{ runner.os }}-${{ runner.arch }}
+                  path: build/bin/
