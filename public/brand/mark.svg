@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 288 256" fill="none">
+  <title>Markdown Exporter mark</title>
+  <path d="M12 220V12H64L144 118L224 12H276V220H222V110L144 210L66 110V220H12Z" fill="currentColor"/>
+  <path d="M12 240H66M222 240H276" stroke="currentColor" stroke-width="4"/>
+</svg>
