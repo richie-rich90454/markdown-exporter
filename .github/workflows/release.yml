@@ -1,0 +1,323 @@
+name: Release
+
+on:
+    pull_request:
+        branches: [main]
+    push:
+        tags:
+            - "v*"
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: release-${{ github.ref }}
+    cancel-in-progress: false
+
+jobs:
+    verify:
+        name: Verify application
+        runs-on: ubuntu-24.04
+        timeout-minutes: 40
+        outputs:
+            version: ${{ steps.version.outputs.version }}
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: pnpm/action-setup@v6
+              with:
+                  version: 12.10.1
+
+            - uses: actions/setup-node@v7
+              with:
+                  node-version: 24
+                  cache: pnpm
+
+            - uses: actions/setup-go@v6
+              with:
+                  go-version: "1.26.0"
+
+            - name: Install Linux build and browser-test dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install --yes build-essential libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config
+
+            - name: Install JavaScript dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Check release version metadata
+              id: version
+              env:
+                  RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+              run: |
+                  node scripts/check-release-version.mjs "$RELEASE_TAG"
+                  echo "version=$(node -p 'JSON.parse(require("node:fs").readFileSync("package.json", "utf8")).version')" >> "$GITHUB_OUTPUT"
+
+            - name: Check formatting
+              run: pnpm run format:check
+
+            - name: Typecheck
+              run: pnpm run typecheck
+
+            - name: Lint
+              run: pnpm run lint
+
+            - name: Run unit tests
+              run: pnpm run test
+
+            - name: Build browser application
+              run: pnpm run build
+
+            - name: Build embedded desktop frontend
+              run: pnpm run build:desktop
+
+            - name: Test and vet native backend
+              env:
+                  GOFLAGS: -tags=webkit2_41
+              run: |
+                  go test ./...
+                  go vet ./...
+
+            - name: Install Playwright browser
+              run: pnpm exec playwright install --with-deps chromium
+
+            - name: Run end-to-end and accessibility tests
+              run: pnpm run test:e2e
+
+    package:
+        name: Package ${{ matrix.label }}
+        needs: verify
+        timeout-minutes: 60
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - label: Windows x64
+                      runner: windows-latest
+                      platform: windows
+                      goarch: amd64
+                    - label: macOS Intel
+                      runner: macos-15-intel
+                      platform: darwin
+                      goarch: amd64
+                    - label: macOS Apple Silicon
+                      runner: macos-15
+                      platform: darwin
+                      goarch: arm64
+                    - label: Linux amd64
+                      runner: ubuntu-24.04
+                      platform: linux
+                      goarch: amd64
+                    - label: Linux arm64
+                      runner: ubuntu-24.04-arm
+                      platform: linux
+                      goarch: arm64
+        runs-on: ${{ matrix.runner }}
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: pnpm/action-setup@v6
+              with:
+                  version: 12.10.1
+
+            - uses: actions/setup-node@v7
+              with:
+                  node-version: 24
+                  cache: pnpm
+
+            - uses: actions/setup-go@v6
+              with:
+                  go-version: "1.26.0"
+
+            - name: Install Linux native libraries
+              if: matrix.platform == 'linux'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install --yes build-essential libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config dpkg-dev
+
+            - name: Install Windows NSIS
+              if: matrix.platform == 'windows'
+              shell: pwsh
+              run: |
+                  if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
+                    choco install nsis --yes --no-progress
+                  }
+                  $nsisPath = 'C:\Program Files (x86)\NSIS'
+                  if (-not (Test-Path (Join-Path $nsisPath 'makensis.exe'))) {
+                    throw 'NSIS installation did not provide makensis.exe.'
+                  }
+                  Add-Content -Path $env:GITHUB_PATH -Value $nsisPath
+                  & (Join-Path $nsisPath 'makensis.exe') /VERSION
+
+            - name: Install JavaScript dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Build embedded desktop frontend
+              run: pnpm run build:desktop
+
+            - name: Install pinned Wails CLI
+              run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0
+
+            - name: Build Windows portable executable and installer
+              if: matrix.platform == 'windows'
+              shell: pwsh
+              env:
+                  RELEASE_VERSION: ${{ needs.verify.outputs.version }}
+                  RELEASE_TAG: ${{ github.ref_name }}
+              run: |
+                  wails build -s -trimpath -platform windows/${{ matrix.goarch }} -webview2 error -nsis
+                  $assets = 'release-assets'
+                  New-Item -ItemType Directory -Force -Path $assets | Out-Null
+                  $portable = 'build/bin/MarkdownExporter.exe'
+                  if (-not (Test-Path $portable)) { throw "Expected portable executable was not produced: $portable" }
+                  Copy-Item $portable "$assets/MarkdownExporter-$env:RELEASE_VERSION-windows-amd64-portable.exe"
+                  $installer = Get-ChildItem 'build/bin' -Filter '*-amd64-installer.exe' | Select-Object -First 1
+                  if (-not $installer) { throw 'Wails did not produce the expected NSIS installer.' }
+                  Copy-Item $installer.FullName "$assets/MarkdownExporter-$env:RELEASE_VERSION-windows-amd64-installer.exe"
+
+            - name: Build macOS application archive
+              if: matrix.platform == 'darwin'
+              shell: bash
+              env:
+                  RELEASE_VERSION: ${{ needs.verify.outputs.version }}
+              run: |
+                  set -euo pipefail
+                  wails build -s -trimpath -platform darwin/${{ matrix.goarch }}
+                  app="build/bin/MarkdownExporter.app"
+                  executable="$app/Contents/MacOS/MarkdownExporter"
+                  test -d "$app"
+                  test -x "$executable"
+                  architecture="$(file "$executable")"
+                  case "${{ matrix.goarch }}:$architecture" in
+                    amd64:*x86_64*) ;;
+                    arm64:*arm64*) ;;
+                    *) printf 'Unexpected macOS binary architecture: %s\n' "$architecture" >&2; exit 1 ;;
+                  esac
+                  mkdir -p release-assets
+                  ditto -c -k --sequesterRsrc --keepParent "$app" "release-assets/MarkdownExporter-$RELEASE_VERSION-macos-${{ matrix.goarch == 'amd64' && 'x86_64' || 'arm64' }}.zip"
+
+            - name: Build Linux tarball and Debian package
+              if: matrix.platform == 'linux'
+              shell: bash
+              env:
+                  RELEASE_VERSION: ${{ needs.verify.outputs.version }}
+              run: |
+                  set -euo pipefail
+                  wails build -s -trimpath -platform linux/${{ matrix.goarch }} -tags webkit2_41
+                  file build/bin/MarkdownExporter
+                  case "${{ matrix.goarch }}:$(file build/bin/MarkdownExporter)" in
+                    amd64:*x86-64*) ;;
+                    arm64:*aarch64*) ;;
+                    *) echo 'The Linux binary architecture does not match its native runner.' >&2; exit 1 ;;
+                  esac
+                  scripts/package-linux-release.sh "$RELEASE_VERSION" release-assets
+
+            - uses: actions/upload-artifact@v7
+              with:
+                  name: release-${{ matrix.platform }}-${{ matrix.goarch }}
+                  path: release-assets/*
+                  if-no-files-found: error
+                  retention-days: 14
+
+    publish:
+        name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        needs: [verify, package]
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        permissions:
+            actions: read
+            contents: write
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: actions/download-artifact@v8
+              with:
+                  pattern: release-*
+                  path: release-assets
+                  merge-multiple: true
+
+            - name: Verify release payload and create checksums
+              shell: bash
+              env:
+                  RELEASE_VERSION: ${{ needs.verify.outputs.version }}
+                  SOURCE_COMMIT: ${{ github.sha }}
+              run: |
+                  set -euo pipefail
+                  expected=(
+                    "MarkdownExporter-$RELEASE_VERSION-windows-amd64-portable.exe"
+                    "MarkdownExporter-$RELEASE_VERSION-windows-amd64-installer.exe"
+                    "MarkdownExporter-$RELEASE_VERSION-macos-x86_64.zip"
+                    "MarkdownExporter-$RELEASE_VERSION-macos-arm64.zip"
+                    "MarkdownExporter-$RELEASE_VERSION-linux-amd64.tar.gz"
+                    "MarkdownExporter-$RELEASE_VERSION-linux-amd64.deb"
+                    "MarkdownExporter-$RELEASE_VERSION-linux-arm64.tar.gz"
+                    "MarkdownExporter-$RELEASE_VERSION-linux-arm64.deb"
+                  )
+                  for asset in "${expected[@]}"; do
+                    test -s "release-assets/$asset" || { echo "Missing release asset: $asset" >&2; exit 1; }
+                  done
+                  actual_count="$(find release-assets -maxdepth 1 -type f | wc -l)"
+                  test "$actual_count" -eq "${#expected[@]}" || {
+                    echo "Expected ${#expected[@]} packages; found $actual_count." >&2
+                    find release-assets -maxdepth 1 -type f -printf '%f\n' >&2
+                    exit 1
+                  }
+                  {
+                    echo "Markdown Exporter $RELEASE_VERSION"
+                    echo "Source commit: $SOURCE_COMMIT"
+                    echo "GitHub Actions run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID (attempt $GITHUB_RUN_ATTEMPT)"
+                    echo "Built from tag: $GITHUB_REF_NAME"
+                  } > release-assets/BUILDINFO.txt
+                  (
+                    cd release-assets
+                    LC_ALL=C sha256sum "${expected[@]}" BUILDINFO.txt | sort -k2 > SHA256SUMS.txt
+                    sha256sum --check SHA256SUMS.txt
+                  )
+
+            - name: Create or update the verified draft release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  RELEASE_TAG: ${{ github.ref_name }}
+                  RELEASE_VERSION: ${{ needs.verify.outputs.version }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  title="Markdown Exporter $RELEASE_VERSION"
+                  if [ -f "docs/releases/$RELEASE_VERSION.md" ]; then
+                    notes_args=(--notes-file "docs/releases/$RELEASE_VERSION.md")
+                  else
+                    notes_args=(--generate-notes)
+                  fi
+                  if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+                    gh release create "$RELEASE_TAG" --draft --verify-tag --title "$title" "${notes_args[@]}"
+                  else
+                    is_draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')"
+                    if [ "$is_draft" != true ]; then
+                      echo "Release $RELEASE_TAG is already published; leaving its immutable assets untouched."
+                      exit 0
+                    fi
+                    gh release edit "$RELEASE_TAG" --title "$title" "${notes_args[@]}"
+                  fi
+                  gh release upload "$RELEASE_TAG" release-assets/* --clobber
+                  gh release edit "$RELEASE_TAG" --draft=false --latest
+
+            - name: Verify published release assets
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  RELEASE_TAG: ${{ github.ref_name }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  gh release view "$RELEASE_TAG" --json assets,isDraft --jq '.assets[].name' | LC_ALL=C sort > actual-assets.txt
+                  find release-assets -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort > expected-assets.txt
+                  diff -u expected-assets.txt actual-assets.txt
+                  test "$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')" = false
+                  downloaded_assets="$(mktemp -d)"
+                  trap 'rm -rf "$downloaded_assets"' EXIT
+                  gh release download "$RELEASE_TAG" --dir "$downloaded_assets"
+                  (
+                    cd "$downloaded_assets"
+                    sha256sum --check SHA256SUMS.txt
+                  )
